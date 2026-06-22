@@ -1,0 +1,79 @@
+project_name: "AutoTune"
+
+# 工作目录配置
+workspace:
+  # 项目根目录 (必填)
+  root_dir: ".../metro_arrive"
+  # AGENTS.md 路径 (必填)
+  agents_md: ".../autotune/AGENTS.md"
+  # git.diff文件存放路径 (必填，相对root_dir，如果是相对路径最好在.gitignore中添加此路径)
+  git_diff_dir: "git_patch"
+  # 项目目录结构说明文件名 (选填，相对root_dir)
+  structure_filepath: "structure.txt"
+  # 存放plan_log.md的路径 (选填，默认为当前执行目录的log文件夹)
+  plan_log_save_dir: "./log"
+  # grep search 文件后缀白名单 (可添加后缀名扩大搜索范围)
+  grep_allowed_suffix: ["py", "ipynb", "json", "yaml"]
+
+# Skills配置
+skills:
+  # 自定义skills目录列表 for Planner
+  planner_skill_path: ["skills/analyse"]
+
+# 沙箱docker配置
+sandbox:
+  docker:
+    # 镜像名 (需保证唯一)
+    name: "autotune-env"
+    # 基础镜像版本
+    image: "python:3.12-slim"
+    # root_dir的映射路径
+    workdir: "/workspace"
+    cpus: "4.0"
+    memory: "4g"
+    network: "bridge"
+    timeout: 300
+    pip_mirror: "http://cmc-cd-mirror.rnd.huawei.com/pypi/simple/"
+    # 项目所需的依赖包文件路径
+    requirements_path: ".../metro_arrive/requirements.txt"
+
+# Agent运行配置
+agent:
+  # 工具单次最大返回字符长度
+  max_chars: 5000
+  # Developer 执行失败最大重试次数
+  max_retries: 5
+  # 最大方案生成数
+  max_plan_num: 10
+  # LLM最大调用次数
+  recursion_limit: 30000
+
+# LLM配置
+llm:
+  glm-5:
+    url: "http://oneapi.rnd.huawei.com/v1"
+    api_key: ""
+    model_name: "glm-5.1"
+    temperature: 0.7
+  minimax-2.7:
+    url: "http://oneapi.rnd.huawei.com/v1"
+    api_key: ""
+    model_name: "minimax-m2.7"
+    temperature: 0.7
+  dsv4:
+    url: "http://76.65.145.105:8003/v1"
+    api_key: ""
+    model_name: "dsv4"
+    temperature: 0.7
+  deepseek-v4:
+    url: "api.deepseek.com"
+    api_key: "
+    model_name: "deepseek-v4-flash"
+    temperature: 0.7
+
+# 网络搜索工具配置
+tavily:
+  api_key: ""
+
+# 个人proxy配置
+proxy: "http://username:password@proxy.huawei.com:8080"
