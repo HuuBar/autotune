@@ -46,7 +46,7 @@ tests/knowledge_pipeline/
 
 - `meta`: `{task: str, created_by: str, source_cards: list[str]}`。
 - `goal`: `{statement: str, acceptance: list[str]}`。acceptance 每条必须被 assertions 解析（见 §2）。
-- `nodes[]` 公共字段：`id`(str, 全图唯一) / `layer` / `title`(str)。
+- `nodes[]` 公共字段：`id`(str, 全图唯一) / `layer`；`title` 不作硬性必填（黄金夹具 action 节点全部省略 title），出现时须为字符串。【M1 新发现-2 裁决回写】
   - `layer: domain` → `rationale: str`。
   - `layer: hypothesis` → `domain`(引用 domain 节点 id) / `mechanism: str` / `prior: float∈[0,1]` / `expected: {metric, delta, confidence}` / `cost: {recon_steps: int, run_minutes: number}`。
   - `layer: action` → `belongs_to`(引用 hypothesis 或 domain 节点 id) / `type: recon|edit|run` / `do: str` / `tool_hint: str` / `produces: str`（产物名）/ `verify: str`（成功判据，非空）/ `retry_budget: int≥0`。
@@ -70,11 +70,11 @@ L0 目标层以 `goal` 顶层字段表达（与黄金夹具一致），不占 no
 1. V-SCHEMA：顶层键齐全、类型正确；节点/边/决策的必填字段齐全。
 2. V-UNIQ：节点 id 唯一；decision id 与节点 id 不冲突。
 3. V-DAG：全部边（requires/informs/alternatives）构成的图上**无环**（no_parallel 是无向约束，不参与有向环检测）。
-4. V-REQUIRES-EXISTS：每条 requires/informs 边的 from/to 指向存在节点；requires 不得指向 decision（decision 由 `after` 触发）。
+4. V-REQUIRES-EXISTS：每条 requires/informs 边的 from/to 指向存在节点；requires **允许指向** decision（决策点以前置产物为输入，黄金夹具 A3→J2 即此形态），**禁止来自** decision（decision 由 `after` 触发，不是产物源）。【M1 新发现-1 裁决回写】
 5. V-ACTION-VERIFY：每个 action 有非空 `verify` 且有 `retry_budget`。
 6. V-ALT-GROUP：alternatives 边成组完整——同一 alternatives 关系涉及 ≥2 个节点，且同组节点属于同一 hypothesis 的下游分支或同一 domain；组内节点不得再有 requires 相互依赖（互斥分支不能互为前置）。
 7. V-ACCEPTANCE：goal.acceptance 每条可被 §2 解析。
-8. V-DECISION：每个 decision 的 `after` 指向存在 action、`read` 等于该 action 的 `produces`；分支条件完备——**每个分支有 (if|else) 与 then，且（存在 else 兜底 或 分支数 ≥2）**【工程默认值：完备性按结构判定，语义穷尽性交由编译器自检与人工评审，列入新发现】。
+8. V-DECISION：每个 decision 的 `after` 指向存在 action、`read` 等于该 action 的 `produces`；分支条件完备——**每个 if 分支有非空 if+then；else 分支的值本身即兜底动作描述（黄金夹具 J1 形态，无独立 then 键）；且（存在 else 或分支数 ≥2）**【M1 新发现-3 裁决回写；完备性按结构判定，语义穷尽性交由编译器自检与人工评审，列入新发现】。
 9. V-LAYER-REF：hypothesis.domain 指向 domain 层节点；action.belongs_to 指向存在的 hypothesis 或 domain 节点。
 10. V-PRIOR：hypothesis.prior ∈ [0,1]。
 
