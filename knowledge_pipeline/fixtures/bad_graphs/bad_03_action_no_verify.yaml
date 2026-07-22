@@ -1,0 +1,62 @@
+# 坏图 03：action A2 缺 verify 成功判据（触发 V-ACTION-VERIFY）
+version: "1.0"
+meta:
+  task: "M1 坏图夹具"
+  created_by: "m1-test"
+  source_cards: ["X1"]
+
+goal:
+  statement: "overall F1 >= 0.9"
+  acceptance:
+    - "overall.F1 >= 0.9"
+
+nodes:
+  - id: D1
+    layer: domain
+    title: "示例领域"
+    rationale: "夹具占位"
+
+  - id: H1
+    layer: hypothesis
+    domain: D1
+    title: "示例假说"
+    mechanism: "机制解释占位"
+    prior: 0.5
+    expected: {metric: "overall.F1", delta: "+0.05", confidence: "low"}
+    cost: {recon_steps: 1, run_minutes: 5}
+
+  - id: A1
+    layer: action
+    belongs_to: H1
+    type: recon
+    do: "接线审计"
+    tool_hint: "read_code_block"
+    produces: "wiring_report"
+    verify: "报告含明确判定"
+    retry_budget: 1
+
+  - id: A2
+    layer: action
+    belongs_to: H1
+    type: run
+    do: "全量训练"
+    tool_hint: "execute_sandbox"
+    produces: "run_result"
+    retry_budget: 1
+
+edges:
+  - {from: A1, to: A2, type: requires}
+
+decisions:
+  - id: J1
+    after: A1
+    read: wiring_report
+    branches:
+      - if: "存在未接线机制"
+        then: "执行 A2"
+      - else: "跳过 A2"
+
+writeback:
+  ledger: "hypotheses.jsonl"
+  record_schema: "{node_id, status, evidence, metrics, posterior, notes, ts}"
+  after_domain_review: "按领域聚合收益，更新下一轮 prior"
