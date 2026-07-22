@@ -1,0 +1,134 @@
+# TBox 事故剧本（mock 环境内置事实）——复现 03 文档第二部分逐拍时间线
+#
+# Playbook schema（见 knowledge_pipeline/simulator/mock_executor.py 模块 docstring）：
+#   facts:          全局环境事实（验收断言评估的基线；嵌套 dict 点号路径取值）
+#   actions.<id>:   artifacts（每次成功执行消费一项，含可选 facts_update 深合并入 facts）
+#                   + fail_sequence（每次尝试是否 verify 失败，用尽取末项）
+#   decisions.<id>: rules（有序，首条命中生效；when 为 path/op/value 条件列表，
+#                   判定上下文 = after 动作产物 ∪ facts；reason 支持 {点号路径} 插值，
+#                   理由强制落盘）+ default（可选兜底）+ effects（分支→节点机器映射：
+#                   boost 提为最高优先 / skip 显式跳过，E3 的工程默认值）
+#   outcome_rules:  假说终态判定口径（边际提升阈值 + 复跑次数，03 文档 T+9~10）
+#
+# 时间线锚点（03 文档第二部分）：
+#   T+1  A1 返回 wiring_report：存在 1 处未接线 → T+2 J1 走"修复"分支
+#   T+3~4 A2 第一次冒烟失败 → retry 1/2 → 第二次通过；H1 confirmed（0.5→0.95）
+#   T+5  A4 数据体检发现重复列
+#   T+6  A3 误差结构：FP 主导 + 游戏类验证样本 320 条
+#   T+7  J2 走"先 A5 但 A6 升级 K 折"分支（H6 激活）
+#   T+8  A6 实测 +0.12 → H2 confirmed
+#   T+9~10 A8 实测 +0.03 → 边际提升复跑 → +0.01 → H3 uncertain（不计入战果）
+#   T+11 验收断言 5 条全过
+meta:
+  id: "tbox_incident_v1"
+  description: "断链存在 / 数据有重复列 / 验证集游戏类 320 条 / H3 加权仅边际提升"
+
+# 基线环境事实（任务书基线口径）：验收断言中 2 条（bilibili/抖音不劣化）开局即过，
+# 3 条主指标待提升；_delta 为相对基线差值（SPEC §2 约定，由调用方提供差值事实）。
+facts:
+  per_app:
+    王者荣耀: {F1: 0.66}
+    bilibili: {F1_delta: -0.004}
+    抖音: {F1_delta: -0.003}
+  overall: {F1: 0.930, Recall: 0.962}
+
+actions:
+  A1:  # T+1：接线审计 → 存在 1 处未接线（scale_pos_weight 未传入 fit）
+    artifacts:
+      - produces: wiring_report
+        unwired_count: 1
+        unwired:
+          - {mechanism: "scale_pos_weight", site: "train.py:142", detail: "参数声明了但未传入 fit"}
+        wired: ["decision_threshold", "early_stopping"]
+
+  A2:  # T+3~4：修复接线；第一次冒烟失败 → retry 1/2 → 第二次通过
+    fail_sequence: [true, false]
+    artifacts:
+      - produces: fix_commit
+        commit: "fix: pass scale_pos_weight into fit call"
+        smoke: "passed"
+        mechanism_visible_in_log: true
+
+  A3:  # T+6：误差结构分析 → FP 主导，游戏类验证样本 320 条
+    artifacts:
+      - produces: error_profile
+        dominant_error: "FP"
+        fp: 802
+        fn: 121
+        val_samples: {游戏: 320}
+
+  A4:  # T+5：数据体检 → 发现重复列
+    artifacts:
+      - produces: data_health
+        duplicate_columns: ["feat_17"]
+        known_issues: ["duplicate_column:feat_17"]
+        missing_rate_max: 0.0
+
+  A5:  # T+8：阈值搜索编辑（单原子；改完当场 JSON 校验通过）
+    artifacts:
+      - produces: threshold_change
+        threshold_search: {range: [0.30, 0.70], step: 0.02}
+        config_json_valid: true
+        smoke: "passed"
+
+  A6:  # T+8：全量训练 → 实测 +0.12（≥ 边际阈值 0.05，H2 confirmed）
+    artifacts:
+      - produces: run_result_h2
+        measured_gain: 0.12
+        sensitivity_table: "threshold_f1_sensitivity.csv"
+        facts_update:
+          per_app: {王者荣耀: {F1: 0.78}}
+          overall: {F1: 0.937, Recall: 0.971}
+
+  A7:  # T+9：分层样本权重编辑（与 A5 改动分开提交，单原子）
+    artifacts:
+      - produces: weight_change
+        smoke: "passed"
+
+  A8:  # T+9~10：实测 +0.03 → 触发"边际提升复跑" → 复跑 +0.01 → uncertain
+    artifacts:
+      - produces: run_result_h3
+        measured_gain: 0.03
+      - produces: run_result_h3
+        measured_gain: 0.01
+        facts_update:
+          per_app: {王者荣耀: {F1: 0.79}}
+
+decisions:
+  J1:  # T+2：读 wiring_report
+    rules:
+      - when:
+          - {path: unwired_count, op: ">=", value: 1}
+        branch: 0
+        reason: "wiring_report 存在 {unwired_count} 处未接线机制（scale_pos_weight 未传入 fit）→ 命中分支「存在未接线机制」，优先执行 A2 修复"
+    default:
+      branch: 1
+      reason: "wiring_report 未发现未接线机制 → 走 else：跳过 A2，直接进入 D2"
+    effects:
+      "0": {boost: [A2]}
+      "1": {skip: [A2]}
+
+  J2:  # T+7：读 error_profile
+    rules:
+      - when:
+          - {path: dominant_error, op: "==", value: "FP"}
+          - {path: val_samples.游戏, op: ">=", value: 500}
+        branch: 0
+        reason: "FP 主导且游戏类验证样本 {val_samples.游戏} ≥ 500 → 先 A5（阈值路线）"
+      - when:
+          - {path: dominant_error, op: "==", value: "FP"}
+          - {path: val_samples.游戏, op: "<", value: 500}
+        branch: 1
+        reason: "FP 主导但游戏类验证样本 {val_samples.游戏} < 500，小样本搜阈值有过拟合风险 → 先 A5，但 A6 验收升级为 K 折（H6 激活）"
+      - when:
+          - {path: dominant_error, op: "==", value: "FN"}
+        branch: 2
+        reason: "FN 主导 → 先 A7（加权路线），A5 延后"
+    effects:
+      "0": {boost: [A5]}
+      "1": {boost: [A5, A6]}
+      "2": {boost: [A7]}
+
+outcome_rules:  # 假说终态判定口径（SPEC §4.2 假说级状态聚合 + 03 文档"边际提升复跑"）
+  marginal_gain_threshold: 0.05  # 实测收益 < 0.05 → 边际提升，触发复跑
+  marginal_reruns: 1             # 复跑次数上限（T+9~10 复跑一次后判 uncertain）
