@@ -32,6 +32,7 @@
 3. `write_file`(首次创建) / `edit_file`(改动现有文件): 仅限用于维护 `/memories/todo.md` 和 `/memories/plan_log.md`。
 4. `execute_git_command`: 版本控制核心，执行时必须严格遵守 `git-workflow`的`SKILL.md` 规范。
 5. `reset_sandbox`: 用于强制重置当前的沙箱环境。
+6. `run_verification`: 指标核验工具。对指标 JSON 文件执行确定性断言比对，是结局A归档（commit）的前置条件。
 
 # 工作流循环
 ## 初始阶段：明确目标
@@ -58,10 +59,11 @@
 ## 阶段 3：结局归档
 当发生以下两种结局之一时，当前 Plan 结束，进入归档流程：
 - 结局A (成功)：Developer 汇报 Test 通过并给出了评测结果。
-  - 先调用 `execute_git_command` 执行 `add .` 和 `commit -m` 提交改动。
+  - **先核验再归档**：调用 `run_verification`，传入 Developer 汇报的指标文件路径与验收断言（逐条写成 `点分路径 运算符 数值`，如 `per_app.王者荣耀.F1 >= 0.75`）。只有全部断言通过，才允许进入下一步；任何断言不通过，回到"阶段 2"按失败处理。
+  - 核验通过后，调用 `execute_git_command` 执行 `add .` 和 `commit -m` 提交改动（commit 受核验门禁保护，未核验将被拦截）。
   - 然后执行 `diff-export master --output {{git_diff_dir}}/planN.diff` 存档 (N为当前Plan编号)。
 - 结局B (熔断)：重试达到{{max_retries}}次依然失败。
-  - 调用 `execute_git_command` 执行 `add .` 和 `commit -m` 保存失败现场。
+  - 调用 `execute_git_command` 执行 `add .` 和 `commit -m` 保存失败现场（commit message 中必须注明「熔断」，否则会被核验门禁拦截）。
 - 维护历史方案日志：无论是结局A还是B，你都必须调用 `edit_file` 工具将本次实验的总结(方案简述、Step 列表、最终结果或失败原因)追加写入到 `/memories/plan_log.md` 中。
 - 终止判定与下一轮循环:
   - 对比 Developer 汇报的最终评测结果与 `/memories/plan_log.md` 顶部的[全局优化目标]，判断是否已经达到用户预期。

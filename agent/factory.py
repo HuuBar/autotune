@@ -24,6 +24,7 @@ from agent.middleware import StrictSubAgentMiddleware
 from tools.code.editor import EditorTools
 from tools.code.executor import SandboxTools
 from tools.code.navigation import NavigationTools
+from tools.code.verify import VerificationTools
 from tools.execute.execute_bash import ExecuteBashTool
 from tools.execute.execute_git import ExecuteGitTool
 from tools.search.web_search import WebSearchTools
@@ -328,7 +329,8 @@ class ManagerAgentBuilder(BaseAgentBuilder):
     def get_tools(self) -> List[Any]:
         reset_sandbox = SandboxTools().create_reset_sandbox_tool()
         execute_git_command = ExecuteGitTool().create_execute_git_command_tool()
-        return [execute_git_command, reset_sandbox]
+        run_verification = VerificationTools().create_run_verification_tool()
+        return [execute_git_command, reset_sandbox, run_verification]
 
     def get_exclude_tools(self) -> List[str]:
         return ["write_todos", "ls", "glob", "grep"]
