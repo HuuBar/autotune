@@ -24,6 +24,7 @@ from agent.middleware import StrictSubAgentMiddleware
 from tools.code.editor import EditorTools
 from tools.code.executor import SandboxTools
 from tools.code.navigation import NavigationTools
+from tools.code.validate_data import ValidateDataTools
 from tools.code.verify import VerificationTools
 from tools.execute.execute_bash import ExecuteBashTool
 from tools.execute.execute_git import ExecuteGitTool
@@ -407,11 +408,12 @@ class PlannerAgentBuilder(BaseAgentBuilder):
         find_definition = navigation_tools.create_find_definition_tool()
         read_code_block = navigation_tools.create_read_code_block_tool()
         inspect_dataframe = navigation_tools.create_inspect_dataframe_tool()
+        validate_data = ValidateDataTools().create_validate_data_tool()
         execute_safe_bash = ExecuteBashTool().create_execute_safe_bash_tool()
         web_search = WebSearchTools().create_web_search_tool()
         return [
             get_file_skeleton, find_definition, read_code_block,
-            execute_safe_bash, inspect_dataframe, web_search
+            execute_safe_bash, inspect_dataframe, validate_data, web_search
         ]
 
     def get_exclude_tools(self) -> List[str]:
