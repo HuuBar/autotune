@@ -66,6 +66,25 @@ All file paths must start with `/memories` Follow the tool docs for the availabl
 
 When a tool result is too large, it may be offloaded into the filesystem instead of being returned inline. In those cases, use `read_file` to inspect the saved result in chunks. Offloaded tool results are stored under `{large_tool_results_prefix}/<tool_call_id>`."""
 
+DEVELOPER_READ_FILE_DESCRIPTION = """Reads a file from the memory filesystem (虚拟文件系统).
+
+【适用范围 — 严格限制】本工具只能读取虚拟文件系统中的 `/memories/`（如 /memories/todo.md）与 `/skills/` 目录。
+它**不能**读取项目真实代码文件！项目源码、配置、数据文件一律使用代码侦察工具（get_file_skeleton / read_code_block / find_definition / grep_search），并传入以项目根目录开头的完整绝对路径。
+
+Usage:
+- By default, it reads up to 100 lines starting from the beginning of the file
+- **IMPORTANT for large files and codebase exploration**: Use pagination with offset and limit parameters to avoid context overflow
+  - First scan: read_file(path, limit=100) to see file structure
+  - Read more sections: read_file(path, offset=100, limit=200) for next 200 lines
+  - Only omit limit (read full file) when necessary for editing
+- Specify offset and limit: read_file(path, offset=0, limit=100) reads first 100 lines
+- Results are returned using cat -n format, with line numbers starting at 1
+- Lines longer than 5,000 characters will be split into multiple lines with continuation markers (e.g., 5.1, 5.2, etc.). When you specify a limit, these continuation lines count towards the limit.
+- You have the capability to call multiple tools in a single response. It is always better to speculatively read multiple files as a batch that are potentially useful.
+- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
+
+- You should ALWAYS make sure a file has been read before editing it."""
+
 READ_FILE_REPLACED_DESCRIPTION = """Reads a file from the memory filesystem.
 
 Assume this tool is only able to read files in `/memories/` and `/skills/` directory. It is okay to read a file that does not exist; an error will be returned.
@@ -98,6 +117,25 @@ When using the Task tool, you must specify a subagent_type parameter to select w
 4. The agent's outputs should generally be trusted
 5. Clearly tell the agent whether you expect it to create content, perform analysis, or just do research (search, file reads, web fetches, etc.), since it is not aware of the user's intent
 6. If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement."""
+
+
+class ReadFileDescriptionOverrideMiddleware(fs_mw.FilesystemMiddleware):
+    """
+    按 agent 生效的 read_file 工具描述覆盖中间件（W3-3）。
+
+    机制：只重新注入 read_file 一个工具。同一 Agent 的中间件链中，本中间件位于
+    deepagents 内置 FilesystemMiddleware 之后，同名工具后注册者生效（ToolNode
+    last-wins），因此 read_file 使用此处定制的描述，其余文件系统工具
+    （write_file/edit_file/ls/glob/grep）仍由内置栈提供，行为完全不变。
+    取代了原先"改写 fs_mw.READ_FILE_TOOL_DESCRIPTION 模块全局变量"的做法
+    （该做法对所有 Agent 一刀切生效）。
+    """
+    def __init__(self, read_file_description: str, **kwargs):
+        super().__init__(
+            custom_tool_descriptions={"read_file": read_file_description},
+            **kwargs,
+        )
+        self.tools = [t for t in self.tools if t.name == "read_file"]
 
 
 class BaseAgentBuilder:
@@ -136,7 +174,9 @@ class BaseAgentBuilder:
         TodoListMiddleware.awrap_model_call = lambda self, request, handler: handler(request)
         da_gh.BASE_AGENT_PROMPT = ""
         da_gh.SubAgentMiddleware = StrictSubAgentMiddleware
-        fs_mw.READ_FILE_TOOL_DESCRIPTION = READ_FILE_REPLACED_DESCRIPTION
+        # 注意：read_file 工具描述不再通过改写 fs_mw.READ_FILE_TOOL_DESCRIPTION
+        # 模块全局变量注入（该方式对所有 Agent 一刀切生效），
+        # 改由 ReadFileDescriptionOverrideMiddleware 按 agent 注入（见 _get_middleware）。
         sa_mw.TASK_TOOL_DESCRIPTION = TASK_TOOL_REPLACED_DESCRIPTION
         sa_mw.GENERAL_PURPOSE_SUBAGENT["name"] = "Planner"
 
@@ -168,6 +208,10 @@ class BaseAgentBuilder:
     def get_skill_mappings(self) -> Dict[str, str]:
         """返回skills的 {虚拟路径: 物理相对路径} 的映射"""
         return {}
+
+    def get_read_file_description(self) -> str:
+        """本 Agent 的 read_file 工具描述（按 agent 生效，子类可覆盖定制）"""
+        return READ_FILE_REPLACED_DESCRIPTION
 
     def get_filesystem_prompt(self) -> str:
         """默认的 Filesystem Prompt (Subagents 使用)"""
@@ -264,7 +308,12 @@ class BaseAgentBuilder:
         return [
             SummarizationMiddleware(model=self._get_llm(), trigger=("messages", self.max_messages)),
             ModelRetryMiddleware(max_retries=3, initial_delay=10),
-            _ToolExclusionMiddleware(excluded=self.get_exclude_tools())
+            _ToolExclusionMiddleware(excluded=self.get_exclude_tools()),
+            # 按 agent 生效的 read_file 描述注入（同名工具后注册者生效）
+            ReadFileDescriptionOverrideMiddleware(
+                read_file_description=self.get_read_file_description(),
+                backend=self._create_hybrid_backend(),
+            ),
         ]
 
     def to_subagent(self) -> SubAgent:
@@ -392,6 +441,11 @@ class DeveloperAgentBuilder(BaseAgentBuilder):
 
     def get_prompt_filepath(self) -> str:
         return "prompt/developer.md"
+
+    def get_read_file_description(self) -> str:
+        # Developer 专属：明确 read_file 只读虚拟文件系统，项目代码须走
+        # 代码侦察工具 + 绝对路径（针对"拿 read_file 读项目文件迷失"事故）
+        return DEVELOPER_READ_FILE_DESCRIPTION
 
     def get_tools(self) -> List[Any]:
         navigation_tools = NavigationTools()
