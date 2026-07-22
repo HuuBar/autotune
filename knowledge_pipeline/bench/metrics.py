@@ -21,7 +21,7 @@
    —— 剧本声明 trap 信号时计算：全部信号命中 → 1.0，否则 0.0；
    剧本无 trap 节 → ``None``（不参与聚合）。
 6. ``s5_noise_as_win`` 噪声当战果次数
-   —— 有编排侧 = 账本写回中 status==confirmed 且 0 < measured_gain < 边际阈值
+   —— 有编排侧 = 账本写回中 status==confirmed 且 0 < gain < 边际阈值（账本规范键 gain）
    的记录数；无编排侧 = 0 < gain < 边际阈值的 claim_win 事件数。
 7. ``blind_card_applications`` 盲抄次数（与剧本不符的卡片套用）
    —— 有编排侧 = 图 meta.source_cards ∩ 剧本 inapplicable_cards；
@@ -198,7 +198,7 @@ def _orchestrated_metrics(events: list[dict[str, Any]], scenario: Any) -> dict[s
         record = (e.get("detail") or {}).get("record") or {}
         if record.get("status") != "confirmed":
             continue
-        gain = (record.get("metrics") or {}).get("measured_gain")
+        gain = (record.get("metrics") or {}).get("gain")
         if isinstance(gain, (int, float)) and not isinstance(gain, bool) and 0 < gain < threshold:
             noise += 1
 

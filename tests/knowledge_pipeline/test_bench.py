@@ -178,7 +178,7 @@ def test_metrics_orchestrated_known_trace():
          "detail": {"branch_index": 1}},  # 期望 0 → 分支错误
         {"tick": 3, "event": "writeback", "node_id": "H1",
          "detail": {"record": {"status": "confirmed",
-                               "metrics": {"measured_gain": 0.03}}}},  # 噪声当战果
+                               "metrics": {"gain": 0.03}}}},  # 噪声当战果
         {"tick": 3, "event": "acceptance_check",
          "detail": {"passed_count": 1, "total": 1}},
     ]
@@ -202,7 +202,7 @@ def test_metrics_orchestrated_clean_trace():
         {"tick": 2, "event": "execute", "node_id": "A2", "detail": {"verify_passed": True}},
         {"tick": 2, "event": "writeback", "node_id": "H1",
          "detail": {"record": {"status": "uncertain",
-                               "metrics": {"measured_gain": 0.03}}}},
+                               "metrics": {"gain": 0.03}}}},
         {"tick": 2, "event": "acceptance_check",
          "detail": {"passed_count": 0, "total": 1}},
     ]

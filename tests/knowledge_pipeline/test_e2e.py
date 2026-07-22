@@ -235,7 +235,7 @@ class TestConsistencyWithM2:
         for hyp, (status, posterior) in self.EXPECTED.items():
             assert records[hyp]["status"] == status, f"{hyp} 状态与 M2 演示不一致"
             assert records[hyp]["posterior"] == pytest.approx(posterior)
-        assert records["H2"]["metrics"]["measured_gain"] == pytest.approx(0.12)
+        assert records["H2"]["metrics"]["gain"] == pytest.approx(0.12)
         assert "不计入战果" in records["H3"]["notes"]
 
     def test_same_as_direct_m2_golden_run(self, e2e_run, tmp_path):

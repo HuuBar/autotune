@@ -718,7 +718,7 @@ class TestGoldenTimeline:
         # T+8：A6 实测 +0.12 → H2 confirmed，账本落实测收益
         h2 = next(r for r in ledger.records if r["node_id"] == "H2")
         assert h2["status"] == "confirmed"
-        assert h2["metrics"]["measured_gain"] == pytest.approx(0.12)
+        assert h2["metrics"]["gain"] == pytest.approx(0.12)
         assert result.hypothesis_outcomes["H6"]["status"] == "confirmed"
 
     def test_no_parallel_hold_appears_in_golden_run(self, tmp_path):

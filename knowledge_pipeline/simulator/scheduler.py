@@ -366,7 +366,10 @@ class Simulator:
                     if state.get(aid) == CONFIRMED
                 ],
                 "metrics": {
-                    "measured_gain": gains[-1] if gains else None,
+                    # 规范键名 "gain"（SPEC §5 裁决：账本收益键统一，与
+                    # ledger.domain_report 默认 gain_key 对齐）；playbook 产物层的
+                    # "measured_gain" 是环境事实键，写回时归一化为 "gain"。
+                    "gain": gains[-1] if gains else None,
                     "gains": gains,
                     "expected_metric": (self.hypotheses[hyp].get("expected") or {}).get(
                         "metric"

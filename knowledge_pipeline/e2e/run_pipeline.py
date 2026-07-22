@@ -248,10 +248,8 @@ def _stage_simulate(args: argparse.Namespace, graph: dict, out: Path):
 
 def _stage_aggregate(graph: dict, ledger: Ledger, sim_result, out: Path) -> dict:
     """阶段 4：聚合（M3 domain_report + 验收断言逐条核对）。"""
-    # 接口适配（列入交付说明「新发现」）：M2 调度器写回的实测收益键是
-    # metrics["measured_gain"]，而 M3 domain_report 默认 gain_key="gain"；
-    # e2e 显式对齐口径，否则 H2 confirmed +0.12 不计入领域收益（D2 会误判 down）。
-    report = domain_report(ledger.records(), graph, gain_key="measured_gain")
+    # 账本收益键已统一为 "gain"（SPEC §5 裁决回写）；显式传参仅为可读性。
+    report = domain_report(ledger.records(), graph, gain_key="gain")
     _write_json(out / "domain_report.json", report)
 
     final = sim_result.final_report
