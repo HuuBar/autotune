@@ -1,0 +1,7 @@
+{
+  "addressing": "key = sha256((system + '\\x00' + user).encode('utf-8')).hexdigest(); file = <key>.txt",
+  "entries": {
+    "f86f74ddc021942c6baddb893d531f79932ebe0d3184408379441aee25c05c2d": "S4a 选卡论证表（TBox：卡库 × tbox_brief.yaml）",
+    "9f37f817fa2c9219809bad9f22673fd518ed93052083013cf6c47b22db741081": "S4b 成图 YAML（TBox：与 tbox_golden.yaml 同构，过 M1 校验）"
+  }
+}

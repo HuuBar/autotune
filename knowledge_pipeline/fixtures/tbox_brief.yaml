@@ -1,0 +1,47 @@
+# TBox 任务书 + 地形描述（M4 编排编译器输入）
+#
+# 来源：由黄金图（tbox_golden.yaml）meta/goal 与 03 文档（第一部分 S4a/S4b、
+# 第二部分模拟时间线）反推——编译产物的形态基准是黄金图，本任务书是其输入侧事实。
+# 口径：baseline.metrics 与 tbox_playbook.yaml 的开局 facts 一致。
+brief:
+  task_id: "tbox_sim_optim"
+  title: "TBox SIM Optim · 王者荣耀 F1 优化"
+  goal:
+    statement: "王者荣耀 F1 >= 0.75，Overall F1 >= 0.935，Recall >= 0.97，视频类 F1 降幅 <= 0.01"
+    acceptance:
+      - "per_app.王者荣耀.F1 >= 0.75"
+      - "overall.F1 >= 0.935"
+      - "overall.Recall >= 0.97"
+      - "per_app.bilibili.F1_delta >= -0.01"
+      - "per_app.抖音.F1_delta >= -0.01"
+  background: >
+    存量 SIM 优化代码库上的分类阈值/加权调优任务。上一轮（v1）曾出现
+    组件未接入、阈值过拟合小验证集等事故；本轮要求在调参前先验证机制真生效。
+
+baseline:
+  metrics:
+    per_app.王者荣耀.F1: 0.66
+    overall.F1: 0.930
+    overall.Recall: 0.962
+  class_balance: "游戏类正样本占比 19.5%（类别不平衡）"
+  precision: 0.5042   # FP 主导：大量负类被判正
+  feature_importance: "基线 feature_importance 存在零重要度特征（疑似噪声列）"
+  notes: "指标来自基线 result_stats；视频类（bilibili/抖音）当前未劣化，需保持。"
+
+terrain:
+  status: "未知，待侦查"   # 内部地形侦查尚未执行，以下事项须在图内安排 recon 动作
+  known: []
+  to_recon:
+    - "训练入口 → train 函数 → 模型 fit 的调用链：各声称机制（如 scale_pos_weight）是否真正接线"
+    - "数据健康：重复列、缺失率、dtype、标签分布"
+    - "各类别 FP/FN 误差结构与验证集样本量（决定阈值搜索范围与稳健性协议）"
+
+constraints:
+  - "单原子变更：同一时期只验证一个改动，改动须可归因"
+  - "多方案比较必须在同一预算口径下进行"
+  - "评估侧文件（数据准备/评估函数/result_stats 生成）不可修改"
+  - "边际提升（噪声带宽内）不得直接记为战果，须复跑确认"
+
+budget:
+  recon_steps: 20
+  run_minutes: 60

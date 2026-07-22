@@ -1,0 +1,208 @@
+version: "1.0"
+meta:
+  task: "TBox SIM Optim · 王者荣耀 F1 优化"
+  created_by: "kp-compiler (cached, tbox v1)"
+  source_cards: ["C2", "B7", "B4", "A1", "A4", "B3", "D2"]
+
+goal:
+  statement: "王者荣耀 F1 >= 0.75，Overall F1 >= 0.935，Recall >= 0.97，视频类 F1 降幅 <= 0.01"
+  acceptance:
+    - "per_app.王者荣耀.F1 >= 0.75"
+    - "overall.F1 >= 0.935"
+    - "overall.Recall >= 0.97"
+    - "per_app.bilibili.F1_delta >= -0.01"
+    - "per_app.抖音.F1_delta >= -0.01"
+
+nodes:
+  # ---------- L1 领域层 ----------
+  - id: D1
+    layer: domain
+    title: "接线完整性"
+    rationale: "卡片 C2：存量代码库中'组件未接入'是高频失败；调参前先验证机制真生效"
+
+  - id: D2
+    layer: domain
+    title: "类别不平衡处理"
+    rationale: "任务书基线：游戏类正样本 19.5%，precision 0.5042（FP 主导）"
+
+  - id: D3
+    layer: domain
+    title: "特征空间"
+    rationale: "基线 feature_importance 存在零重要度特征"
+
+  - id: D4
+    layer: domain
+    title: "评估稳健性"
+    rationale: "卡片 B7：小样本验证集上搜阈值有过拟合风险"
+
+  # ---------- L2 假说层 ----------
+  - id: H1
+    layer: hypothesis
+    domain: D1
+    title: "存在未接线的声称机制，修复接线可零成本释放收益"
+    mechanism: "若机制的参数未传入，则该机制从未生效，接通后等同于无代价增加一个优化手段"
+    prior: 0.5
+    expected: {metric: "per_app.王者荣耀.F1", delta: "+0.0~0.3", confidence: "low"}
+    cost: {recon_steps: 4, run_minutes: 5}
+
+  - id: H2
+    layer: hypothesis
+    domain: D2
+    title: "FP 主导时，上调决策阈值可提升 precision"
+    mechanism: "precision 0.5042 说明大量负类被判正；提高阈值直接减少 FP"
+    prior: 0.7
+    expected: {metric: "per_app.王者荣耀.F1", delta: "+0.05~0.20", confidence: "medium"}
+    cost: {recon_steps: 1, run_minutes: 5}
+
+  - id: H3
+    layer: hypothesis
+    domain: D2
+    title: "分层样本权重（按类别与误差方向加权）可再提游戏类 F1"
+    mechanism: "对难例方向加权使损失函数对齐优化目标"
+    prior: 0.6
+    expected: {metric: "per_app.王者荣耀.F1", delta: "+0.03~0.10", confidence: "low"}
+    cost: {recon_steps: 1, run_minutes: 5}
+
+  - id: H4
+    layer: hypothesis
+    domain: D2
+    title: "scale_pos_weight 当前取值偏高，回调可降 FP"
+    mechanism: "过高的正类权重会推高 FP；与阈值联动需一起调"
+    prior: 0.4
+    expected: {metric: "per_app.王者荣耀.F1", delta: "-0.02~0.05", confidence: "low"}
+    cost: {recon_steps: 1, run_minutes: 5}
+
+  - id: H5
+    layer: hypothesis
+    domain: D3
+    title: "剔除零重要度特征可降噪提效"
+    mechanism: "零重要度特征不贡献分裂增益，徒增噪声与列处理风险"
+    prior: 0.4
+    expected: {metric: "train_time", delta: "-10%", confidence: "low"}
+    cost: {recon_steps: 2, run_minutes: 5}
+
+  - id: H6
+    layer: hypothesis
+    domain: D4
+    title: "阈值选择需稳健性协议，否则过拟合小验证集"
+    mechanism: "游戏类验证样本少时，单划分搜阈值会选中噪声峰"
+    prior: 0.6
+    expected: {metric: "泛化稳定性", delta: "阈值方差↓", confidence: "medium"}
+    cost: {recon_steps: 1, run_minutes: 2}
+
+  # ---------- L3 动作层 ----------
+  - id: A1
+    layer: action
+    belongs_to: H1
+    type: recon
+    do: "追踪训练入口→train 函数→模型 fit 的调用链，核对每个声称机制的参数是否真正传入，输出接线报告"
+    tool_hint: "read_code_block / get_file_skeleton"
+    produces: "wiring_report"
+    verify: "报告中每个机制都有'已接线/未接线(行号)'的明确判定"
+    retry_budget: 2
+
+  - id: A2
+    layer: action
+    belongs_to: H1
+    type: edit
+    do: "按 wiring_report 修复未接线项（一次只修一处，改完冒烟验证）"
+    tool_hint: "edit_code_block + execute_sandbox(冒烟)"
+    produces: "fix_commit"
+    verify: "冒烟训练通过且机制在日志中可见生效"
+    retry_budget: 2
+
+  - id: A3
+    layer: action
+    belongs_to: D2
+    type: recon
+    do: "读基线 predictions/result_stats，统计各类别 FP/FN 结构与验证集样本量"
+    tool_hint: "inspect_dataframe / execute_safe_bash"
+    produces: "error_profile"
+    verify: "输出各类别 FP、FN、验证样本量三项数字"
+    retry_budget: 2
+
+  - id: A4
+    layer: action
+    belongs_to: H6
+    type: recon
+    do: "对 X_train 做数据体检（重复列、缺失率、dtype、标签分布）"
+    tool_hint: "validate_data"
+    produces: "data_health"
+    verify: "体检报告生成；发现的缺陷记入 known_issues"
+    retry_budget: 1
+
+  - id: A5
+    layer: action
+    belongs_to: H2
+    type: edit
+    do: "实现阈值搜索（范围与步长由 error_profile 决定），改完当场解析校验配置文件"
+    tool_hint: "edit_code_block"
+    produces: "threshold_change"
+    verify: "配置解析通过；冒烟跑通"
+    retry_budget: 2
+
+  - id: A6
+    layer: action
+    belongs_to: H2
+    type: run
+    do: "全量训练并输出阈值-F1 敏感性数据（而非单点最优）"
+    tool_hint: "execute_sandbox"
+    produces: "run_result_h2"
+    verify: "result_stats 达标 且 附敏感性表"
+    retry_budget: 1
+
+  - id: A7
+    layer: action
+    belongs_to: H3
+    type: edit
+    do: "实现分层样本权重（与阈值改动分开提交，单原子变更）"
+    tool_hint: "edit_code_block"
+    produces: "weight_change"
+    verify: "冒烟跑通"
+    retry_budget: 2
+
+  - id: A8
+    layer: action
+    belongs_to: H3
+    type: run
+    do: "全量训练验证加权效果"
+    tool_hint: "execute_sandbox"
+    produces: "run_result_h3"
+    verify: "result_stats 与 H2 结果可比（同预算口径）"
+    retry_budget: 1
+
+edges:
+  - {from: A1, to: A2, type: requires}        # 修复需要审计报告
+  - {from: A4, to: A5, type: requires}        # 改配置前先体检数据
+  - {from: A4, to: A7, type: requires}
+  - {from: A3, to: J2, type: requires}        # 决策点需要误差结构
+  - {from: A3, to: A5, type: informs}         # 误差结构决定阈值搜索范围
+  - {from: A3, to: A7, type: informs}
+  - {from: A5, to: A6, type: requires}
+  - {from: A7, to: A8, type: requires}
+  - {from: A5, to: A7, type: no_parallel, reason: "单原子变更原则：同一时期只验证一个改动"}
+  - {from: A6, to: A8, type: no_parallel, reason: "全量训练资源互斥，且结果需同口径比较"}
+
+decisions:
+  - id: J1
+    after: A1
+    read: wiring_report
+    branches:
+      - if: "存在未接线机制"
+        then: "优先执行 A2（修复后重测基线，再评估 D2 假说）"
+      - else: "跳过 A2，直接进入 D2"
+  - id: J2
+    after: A3
+    read: error_profile
+    branches:
+      - if: "FP 主导 且 游戏类验证样本 >= 500"
+        then: "先 A5（阈值路线）"
+      - if: "FP 主导 且 游戏类验证样本 < 500"
+        then: "先 A5，但 A6 的 verify 升级为 K 折或标注低置信度（H6 生效）"
+      - if: "FN 主导"
+        then: "先 A7（加权路线），A5 延后"
+
+writeback:
+  ledger: "hypotheses.jsonl"
+  record_schema: "{node_id, status, evidence, metrics, posterior, notes, ts}"
+  after_domain_review: "按领域聚合收益，更新下一轮 prior；新经验提炼为卡片（带来源与已验证标记）"

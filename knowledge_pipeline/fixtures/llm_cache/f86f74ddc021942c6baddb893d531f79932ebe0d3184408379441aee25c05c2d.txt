@@ -1,0 +1,147 @@
+[
+  {
+    "card_id": "C2",
+    "decision": "adopt",
+    "rationale": "存量代码库'组件未接入'是高频失败（v1 已有前科），任务书地形未知待侦查——实例化为 D1 接线完整性领域与 A1 接线审计动作"
+  },
+  {
+    "card_id": "B7",
+    "decision": "adopt",
+    "rationale": "基线 precision 0.5042 需搜阈值，而游戏类验证样本量未知，小样本搜阈值有代理错位风险——实例化为 D4 评估稳健性领域与 J2 的 K 折升级分支"
+  },
+  {
+    "card_id": "B4",
+    "decision": "adopt",
+    "rationale": "F1 提升 0.005 级改进不能当战果——实例化为验收纪律与 H3 边际提升复跑判定（uncertain 不计入战果）"
+  },
+  {
+    "card_id": "A1",
+    "decision": "adopt",
+    "rationale": "单原子变更原则是任务书硬约束——实例化为 A5/A7 分开提交与 no_parallel 边，保证指标变化可归因"
+  },
+  {
+    "card_id": "A4",
+    "decision": "adopt",
+    "rationale": "小样本先行、全量殿后——实例化为每个 edit 动作的冒烟 verify（验证阶梯 L1 档），把语法/类型错误拦在全量训练前"
+  },
+  {
+    "card_id": "B3",
+    "decision": "adopt",
+    "rationale": "机器可读结果契约——实例化为 writeback 账本 schema，下游只读账本不听口述"
+  },
+  {
+    "card_id": "D2",
+    "decision": "adopt",
+    "rationale": "实验账本三元组（假设+实现+反馈）——实例化为假说节点的 mechanism/prior/expected 结构与账本记录字段"
+  },
+  {
+    "card_id": "A2",
+    "decision": "reject",
+    "rationale": "草稿-改进-调试树搜索是运行时探索策略；本图为单轮固定编排（SPEC 非目标：不做树搜索调度），由领域层 ≥3 正交方向承接其广度意图"
+  },
+  {
+    "card_id": "A3",
+    "decision": "reject",
+    "rationale": "固定预算可比性已内化为任务书'同预算口径'约束与 A6/A8 的 verify 判据，无需单列卡片节点"
+  },
+  {
+    "card_id": "A5",
+    "decision": "reject",
+    "rationale": "多轨迹并行超出 v1 串行调度范围（SPEC §4 v1 串行），信息交换协议无运行时载体"
+  },
+  {
+    "card_id": "A6",
+    "decision": "reject",
+    "rationale": "节奏模式属多轮重编译策略（01 文档 §5 下一轮编排），单轮图内不实例化"
+  },
+  {
+    "card_id": "B1",
+    "decision": "reject",
+    "rationale": "防作弊指标设计已在任务书验收侧完成（王者荣耀 F1 + 视频类不劣化约束），图内直接继承 acceptance，不再生成节点"
+  },
+  {
+    "card_id": "B2",
+    "decision": "reject",
+    "rationale": "评估侧不可改由任务书约束与 autotune 工具层强制执行，不在编排图职责内"
+  },
+  {
+    "card_id": "B5",
+    "decision": "reject",
+    "rationale": "评估外置化是基础设施决策，编译期无对应图内动作"
+  },
+  {
+    "card_id": "B6",
+    "decision": "reject",
+    "rationale": "过拟合风险选择函数面向多候选终选场景；本任务单路线优化，过拟合风险已由 B7（稳健性协议）覆盖"
+  },
+  {
+    "card_id": "C1",
+    "decision": "reject",
+    "rationale": "API 幻觉防御需要项目所用库的 API 卡，本卡库尚无对应内容——列入知识库增殖待办而非本图节点"
+  },
+  {
+    "card_id": "C3",
+    "decision": "reject",
+    "rationale": "早停规则已由调度器 E7（连续 k 轮无进展即停）内置，无需图内节点"
+  },
+  {
+    "card_id": "C4",
+    "decision": "reject",
+    "rationale": "假设复查点的关键场景（接线、误差结构）已由决策点 J1/J2 覆盖，额外复查动作增加成本收益不明"
+  },
+  {
+    "card_id": "C5",
+    "decision": "reject",
+    "rationale": "沙箱隔离与回滚属 autotune 执行后端职责（01 文档 §6 薄适配层），不进编排图"
+  },
+  {
+    "card_id": "C6",
+    "decision": "reject",
+    "rationale": "记忆回授防污染由 writeback.after_domain_review 的 provenance 纪律承接（新卡须带来源与已验证标记），无需独立节点"
+  },
+  {
+    "card_id": "D1",
+    "decision": "reject",
+    "rationale": "角色按反馈类型分工是多 agent 系统架构决策，非单张编排图内容"
+  },
+  {
+    "card_id": "D3",
+    "decision": "reject",
+    "rationale": "最小高信号集是卡库使用方式（运行时 top-K 注入），指导知识供给而非图内结构"
+  },
+  {
+    "card_id": "D4",
+    "decision": "reject",
+    "rationale": "经验检索机制属知识库基建；本任务为首轮编译，无历史经验库可查"
+  },
+  {
+    "card_id": "E1",
+    "decision": "reject",
+    "rationale": "收窄可变范围由任务书 constraints 与 autotune 写权限承担，不实例化为图节点"
+  },
+  {
+    "card_id": "E2",
+    "decision": "reject",
+    "rationale": "指令文件即策略接口属人机交互层（人改文件不改代码），不实例化为图节点"
+  },
+  {
+    "card_id": "E3",
+    "decision": "reject",
+    "rationale": "无人值守铁律由调度器规则兜底（E5 重试升级 / E7 早停），非图内结构"
+  },
+  {
+    "card_id": "F1",
+    "decision": "reject",
+    "rationale": "节奏预算已在每个假说的 cost 字段标注（recon_steps/run_minutes），无需独立节点"
+  },
+  {
+    "card_id": "F2",
+    "decision": "reject",
+    "rationale": "git 审计轨迹 autotune 已具备（卡自评列为已验证资产），本轮无需编排"
+  },
+  {
+    "card_id": "F3",
+    "decision": "reject",
+    "rationale": "限流与重试属 LLM 客户端工程（编译器 client 层），不进编排图"
+  }
+]
