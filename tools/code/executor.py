@@ -26,8 +26,11 @@ RESET_SANDBOX_DESC = """强制重置当前的沙箱环境。此工具应用于�
 
 
 class SandboxTools:
-    def __init__(self) -> None:
+    def __init__(self, track_failures: bool = True) -> None:
         # W3-4：按命令签名统计连续失败次数（替代模型数对话历史的脆弱做法）
+        # track_failures=False 用于内部程序化调用（如 run_verification），
+        # 避免一次性调用每次都输出误导性的 [连续失败 1/3] 标记。
+        self._track_failures = track_failures
         self._fail_counts: dict[str, int] = {}
         self._fail_mark_threshold = global_config.get("agent", {}).get("sandbox_fail_mark_threshold", 3)
 
@@ -38,6 +41,8 @@ class SandboxTools:
 
     def _mark_failure(self, signature: str) -> str:
         """累计一次失败并返回附加给返回结果的标记文本。"""
+        if not self._track_failures:
+            return ""
         count = self._fail_counts.get(signature, 0) + 1
         self._fail_counts[signature] = count
         mark = f"\n[连续失败 {count}/{self._fail_mark_threshold}]"

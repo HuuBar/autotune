@@ -262,7 +262,8 @@ class VerificationTools:
             f"python3 - {shlex.quote(container_metrics)} {shlex.quote(assertions_json)} "
             f"<<'__VERIFY_EOF__'\n{_SANDBOX_VERIFY_SCRIPT}\n__VERIFY_EOF__"
         )
-        raw_output = SandboxTools()._execute_sandbox_impl(command)
+        # track_failures=False：核验是 Manager 的程序化单次调用，不附带失败计数标记
+        raw_output = SandboxTools(track_failures=False)._execute_sandbox_impl(command)
 
         # 3. 解析报告（脚本约定最后一行为 JSON；沙箱层错误直接透传，不记入注册表）
         report = None

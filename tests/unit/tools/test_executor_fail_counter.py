@@ -84,6 +84,14 @@ class TestConsecutiveFailCounter:
         res = _fail_once(tools, "python train.py")
         assert "[连续失败 1/3]" in res  # 计数已归零重新累计
 
+    def test_tracking_disabled_suppresses_mark(self, sandbox, monkeypatch):
+        """track_failures=False（内部程序化调用）不附带失败计数标记。"""
+        tools, _ = sandbox
+        tools._track_failures = False
+        res = _fail_once(tools, "python train.py")
+        assert "连续失败" not in res
+        assert "⚠️ 运行失败" in res  # 失败事实本身仍如实返回
+
     def test_timeout_counts_as_failure(self, sandbox, monkeypatch):
         tools, _ = sandbox
 
