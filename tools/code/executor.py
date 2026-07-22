@@ -12,7 +12,9 @@ EXECUTE_SANDBOX_DESC = """在高度隔离的沙箱中执行 Python 代码或 pip
 注意：此工具仅用于执行代码并获取运行结果，修改代码请使用代码编辑工具。
 
 【路径规则】:沙箱中已将项目的根目录挂载到 {workspace}。
-因此 command 中的所有脚本路径必须以 {workspace} 开头，或使用相对路径。"""
+因此 command 中的所有脚本路径必须以 {workspace} 开头，或使用相对路径。
+
+【失败计数】:工具会按命令签名统计连续失败次数并在结果中附带 [连续失败 N/3] 标记。达到上限后请停止重复尝试同一命令。"""
 
 class ExecuteSandboxSchema(BaseModel):
     """Input schema for `execute_sandbox` tool"""
@@ -23,6 +25,28 @@ RESET_SANDBOX_DESC = """强制重置当前的沙箱环境。此工具应用于�
 
 
 class SandboxTools:
+    def __init__(self) -> None:
+        # W3-4：按命令签名统计连续失败次数（替代模型数对话历史的脆弱做法）
+        self._fail_counts: dict[str, int] = {}
+        self._fail_mark_threshold = global_config.get("agent", {}).get("sandbox_fail_mark_threshold", 3)
+
+    @staticmethod
+    def _command_signature(command: str) -> str:
+        """命令签名：归一化空白字符后的完整命令串。"""
+        return " ".join(command.split())
+
+    def _mark_failure(self, signature: str) -> str:
+        """累计一次失败并返回附加给返回结果的标记文本。"""
+        count = self._fail_counts.get(signature, 0) + 1
+        self._fail_counts[signature] = count
+        mark = f"\n[连续失败 {count}/{self._fail_mark_threshold}]"
+        if count >= self._fail_mark_threshold:
+            mark += " 同一命令已达重试上限：请停止重复尝试，改用不同命令/方案验证，或向 Manager 汇报请求 Debugger 支援。"
+        return mark
+
+    def _clear_failure(self, signature: str) -> None:
+        self._fail_counts.pop(signature, None)
+
     def _execute_sandbox_impl(self, command: str) -> str:
         """
         在高度隔离的沙箱中执行 Python 代码或 pip 命令。
@@ -76,6 +100,7 @@ class SandboxTools:
             return f"❌ 沙箱启动异常: {str(e)}"
 
         # 3. 组装执行指令
+        signature = self._command_signature(command)
         exec_cmd = [
             "docker", "exec",
             container_name,
@@ -107,11 +132,16 @@ class SandboxTools:
                 )
                 if "No such file" in truncated_out:
                     final_report += f"提示：{host_root_dir} 目录已被替换为 {workdir}"
+                final_report += self._mark_failure(signature)
                 return final_report
+            self._clear_failure(signature)
             return output.strip() if output.strip() else "✅ (沙箱执行成功，无终端输出)"
         except subprocess.TimeoutExpired:
             subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
-            return f"❌ 运行超时：命令执行超过 {timeout} 秒，沙箱已被强制销毁。可能存在死循环。"
+            return (
+                f"❌ 运行超时：命令执行超过 {timeout} 秒，沙箱已被强制销毁。可能存在死循环。"
+                f"{self._mark_failure(signature)}"
+            )
         except Exception as e:
             return f"❌ 沙箱调用异常: {str(e)}"
 
