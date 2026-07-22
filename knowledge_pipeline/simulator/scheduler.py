@@ -70,8 +70,6 @@ SKIPPED = "skipped"
 #: 假说终态词表（SPEC §5 status ∈ confirmed|refuted|uncertain|blocked）
 HYPOTHESIS_OUTCOMES = ("confirmed", "refuted", "uncertain", "blocked")
 
-#: 后验更新系数（SPEC §5 工程默认值；M3 落地后可替换为 ledger.update_posterior）
-_POSTERIOR_COEF = 0.9
 
 _DELTA_NUM_RE = re.compile(r"\d+(?:\.\d+)?")
 
@@ -147,16 +145,14 @@ def parse_delta_mid(delta: Any) -> float:
 
 
 def _posterior(prior: float, status: str) -> float:
-    """后验更新（SPEC §5 工程默认值；M3 提供 update_posterior 后可替换）。
+    """后验更新——复用 M3 ``ledger.update_posterior``（单一事实源，防口径漂移）。
 
     confirmed → p + (1-p)*0.9（锚点：03 文档 H1 0.5→0.95）；
-    refuted → p*(1-0.9)；uncertain / blocked → 不变。
+    refuted → p*0.1；uncertain / blocked → 不变。
     """
-    if status == "confirmed":
-        return prior + (1.0 - prior) * _POSTERIOR_COEF
-    if status == "refuted":
-        return prior * (1.0 - _POSTERIOR_COEF)
-    return prior
+    from ..ledger import update_posterior
+
+    return update_posterior(prior, status)
 
 
 class Simulator:

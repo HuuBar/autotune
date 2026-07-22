@@ -128,7 +128,9 @@ JSONL，每事件一行：`{tick, event, node_id?, detail}`；事件词表：`un
   def domain_report(records: list[dict], graph: dict) -> dict  # 按领域聚合收益与状态计数，给下轮 prior 调整建议
   ```
 - 后验更新【工程默认值，列入新发现】：confirmed → `p + (1-p)*0.9`；refuted → `p*(1-0.9)`；uncertain → 不变（notes 记"不计入战果"）；blocked → 不变。
-  （锚点：03 文档 H1 prior 0.5 confirmed → 0.95，与系数 0.9 一致。）
+  （锚点：03 文档 H1 prior 0.5 confirmed → 0.95，与系数 0.9 一致。）**唯一实现为 `ledger.update_posterior`**，调度器不得内联复刻【M2 新发现-7 裁决回写】。
+- 未验证假说**不落账本**；领域聚合经图内 hypothesis→domain 映射识别"未探索"领域给 hold【M3 新发现-1 裁决回写；03 文档"账本追加 5 条（未验×2）"的口径以此为准】。
+- 决策分支的机器映射：v1 图 schema 不扩展，分支效果（boost/skip）由 playbook 按分支索引显式给出，executor 缺省时退化为 then/else 文本内已知 action id 扫描【M2 新发现-1 记录；是否进 schema 列入开放问题上报】。
 - `domain_report` 输出：`{domain_id: {title, confirmed, refuted, uncertain, blocked, total_gain, prior_suggestion}}`；prior_suggestion ∈ `up|down|hold`（confirmed≥1 且有正收益→up；refuted≥1 或 uncertain≥1 且无正收益→down；未探索→hold）。
 
 ## 6. 编排编译器（M4, compiler/）
