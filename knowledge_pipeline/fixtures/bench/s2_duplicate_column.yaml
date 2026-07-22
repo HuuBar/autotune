@@ -1,0 +1,91 @@
+# S2 重复列名（03 文档第四部分剧本库；时间线锚点 T+5：A4 数据体检发现重复列）
+id: S2
+title: "重复列名：数据缺陷静默毁坏训练"
+trigger: "训练数据 X_train 存在重复列 feat_17，agent 直接开始调参训练"
+env_response: "未做数据体检就跑训练 → 重复列致特征错位，训练崩溃；数据体检（data_health）返回：duplicate_columns=[feat_17]"
+expected_response: "改配置/训练前先做数据体检；发现重复列记入 known_issues 并处理后再跑（先侦察后决策）"
+
+brief:
+  statement: "王者荣耀 F1 >= 0.75，Overall F1 >= 0.935，Recall >= 0.97，视频类 F1 降幅 <= 0.01"
+  acceptance:
+    - "per_app.王者荣耀.F1 >= 0.75"
+    - "overall.F1 >= 0.935"
+    - "overall.Recall >= 0.97"
+    - "per_app.bilibili.F1_delta >= -0.01"
+    - "per_app.抖音.F1_delta >= -0.01"
+
+facts:
+  per_app:
+    王者荣耀: {F1: 0.66}
+    bilibili: {F1_delta: -0.004}
+    抖音: {F1_delta: -0.003}
+  overall: {F1: 0.930, Recall: 0.962}
+
+graph: "../tbox_golden.yaml"
+playbook_extends: "../tbox_playbook.yaml"
+playbook:
+  meta: {id: "bench_s2_duplicate_column", description: "S2：数据有重复列 feat_17；接线干净、验证样本 620"}
+  actions:
+    A1:  # 接线审计：干净（本剧本事故只有重复列）
+      artifacts:
+        - produces: wiring_report
+          unwired_count: 0
+          unwired: []
+          wired: ["scale_pos_weight", "decision_threshold", "early_stopping"]
+    A3:  # 误差结构：FP 主导，验证样本 620
+      artifacts:
+        - produces: error_profile
+          dominant_error: "FP"
+          fp: 802
+          fn: 121
+          val_samples: {游戏: 620}
+    A8:  # 加权路线实测 +0.07（confirmed）
+      artifacts:
+        - produces: run_result_h3
+          measured_gain: 0.07
+          facts_update:
+            per_app: {王者荣耀: {F1: 0.79}}
+
+expected_decisions: {J1: 1, J2: 0}
+expected_first_choice: {choice: tune_threshold, protocol_upgrade: false}
+marginal_threshold: 0.05
+inapplicable_cards: []
+
+baseline_env:
+  probes:
+    error_profile: {direction: "类别不平衡", reveals: "FP 802 / FN 121，游戏类验证样本 620 条"}
+    data_health: {direction: "数据质量", reveals: "重复列 feat_17（与 feat_17 自身重复）"}
+    wiring_audit: {direction: "接线完整性", reveals: "全部机制已接线"}
+    sandbox_check: {direction: "环境就绪", reveals: "依赖齐全"}
+  interventions:
+    tune_threshold:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      preconditions:
+        - {probe: data_health, failure: "重复列 feat_17 致特征错位，训练崩溃"}
+      gains: [0.12]
+      facts_update:
+        per_app: {王者荣耀: {F1: 0.78}}
+        overall: {F1: 0.937, Recall: 0.971}
+      fits_scenario: true
+      fit_reason: "FP 主导，阈值卡适用"
+    sample_weights:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      preconditions:
+        - {probe: data_health, failure: "重复列 feat_17 致特征错位，训练崩溃"}
+      gains: [0.07]
+      fits_scenario: true
+      fit_reason: "FP 主导，加权卡适用"
+    prune_features:
+      direction: "特征空间"
+      needs_probes: [data_health]
+      gains: [0.0]
+      fits_scenario: true
+      fit_reason: "重复列属数据缺陷，剔除卡方向上适用（但收益为 0）"
+    fix_wiring:
+      direction: "接线完整性"
+      needs_probes: [wiring_audit]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本接线完好，套用修复卡属盲抄"

@@ -1,0 +1,101 @@
+# S1 断链：声称机制未接线（03 文档第四部分剧本库；时间线锚点 T+1~T+4）
+id: S1
+title: "断链：声称机制未接线"
+trigger: "任务书声称 scale_pos_weight 已启用，agent 开始优化"
+env_response: "接线审计（wiring）返回：scale_pos_weight 声明了但未传入 fit（train.py:142）；修复冒烟第一次失败、第二次通过"
+expected_response: "先接线审计再动手；发现未接线 → 修复 → 冒烟验证 → 再评估其他假说（先侦察后决策）"
+
+brief:
+  statement: "王者荣耀 F1 >= 0.75，Overall F1 >= 0.935，Recall >= 0.97，视频类 F1 降幅 <= 0.01"
+  acceptance:
+    - "per_app.王者荣耀.F1 >= 0.75"
+    - "overall.F1 >= 0.935"
+    - "overall.Recall >= 0.97"
+    - "per_app.bilibili.F1_delta >= -0.01"
+    - "per_app.抖音.F1_delta >= -0.01"
+
+# 初始环境事实（双方唯一事实源；与 playbook facts 合入后供双侧使用）
+facts:
+  per_app:
+    王者荣耀: {F1: 0.66}
+    bilibili: {F1_delta: -0.004}
+    抖音: {F1_delta: -0.003}
+  overall: {F1: 0.930, Recall: 0.962}
+
+graph: "../tbox_golden.yaml"
+playbook_extends: "../tbox_playbook.yaml"
+playbook:
+  meta: {id: "bench_s1_unwired", description: "S1：断链存在；其余方向干净（误差 FP 主导、验证样本 620）"}
+  actions:
+    A3:  # 误差结构：FP 主导，验证样本 620（>=500，J2 走纯阈值路线）
+      artifacts:
+        - produces: error_profile
+          dominant_error: "FP"
+          fp: 802
+          fn: 121
+          val_samples: {游戏: 620}
+    A4:  # 数据体检：干净（本剧本事故只有断链）
+      artifacts:
+        - produces: data_health
+          duplicate_columns: []
+          known_issues: []
+          missing_rate_max: 0.0
+    A6:  # 修复接线后阈值路线实测 +0.14
+      artifacts:
+        - produces: run_result_h2
+          measured_gain: 0.14
+          sensitivity_table: "threshold_f1_sensitivity.csv"
+          facts_update:
+            per_app: {王者荣耀: {F1: 0.80}}
+            overall: {F1: 0.937, Recall: 0.971}
+    A8:  # 加权路线实测 +0.06（>= 边际阈值，confirmed）
+      artifacts:
+        - produces: run_result_h3
+          measured_gain: 0.06
+          facts_update:
+            per_app: {王者荣耀: {F1: 0.81}}
+
+expected_decisions: {J1: 0, J2: 0}
+expected_first_choice: {choice: tune_threshold, protocol_upgrade: false}
+marginal_threshold: 0.05
+inapplicable_cards: []
+
+baseline_env:
+  probes:
+    error_profile: {direction: "类别不平衡", reveals: "FP 802 / FN 121，游戏类验证样本 620 条"}
+    data_health: {direction: "数据质量", reveals: "无重复列，缺失率 0"}
+    wiring_audit: {direction: "接线完整性", reveals: "scale_pos_weight 声明了但未传入 fit（train.py:142）"}
+    sandbox_check: {direction: "环境就绪", reveals: "依赖齐全"}
+  interventions:
+    tune_threshold:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      gains: [0.05]   # 未接线时阈值路线仅部分收益，达不到验收
+      facts_update:
+        per_app: {王者荣耀: {F1: 0.71}}
+        overall: {F1: 0.931, Recall: 0.963}
+      fits_scenario: true
+      fit_reason: "FP 主导，阈值卡适用"
+    sample_weights:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      gains: [0.03]   # 边际收益（噪声区间）
+      fits_scenario: true
+      fit_reason: "FP 主导，加权卡适用"
+    prune_features:
+      direction: "特征空间"
+      needs_probes: [data_health]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本无零重要度特征问题，套用特征卡属盲抄"
+    fix_wiring:
+      direction: "接线完整性"
+      needs_probes: [wiring_audit]
+      preconditions:
+        - {probe: wiring_audit, failure: "未定位接线点，改动冒烟失败（机制仍未生效）", repair: re_edit}
+      gains: [0.09]
+      facts_update:
+        per_app: {王者荣耀: {F1: 0.80}}
+        overall: {F1: 0.937, Recall: 0.971}
+      fits_scenario: true
+      fit_reason: "存在未接线机制，修复卡适用"
