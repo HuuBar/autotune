@@ -16,6 +16,7 @@ from agent.factory import (
     DebuggerAgentBuilder,
 )
 from utils.config import global_config
+from utils.docker_image import resolve_sandbox_image
 from utils.logger import logger
 
 
@@ -88,13 +89,13 @@ class AutoTuneAgent:
             subprocess.run(["docker", "info"], check=True, capture_output=True, timeout=5)
         except Exception:
             raise RuntimeError("❌ 致命错误：Docker 未启动或未安装，沙箱初始化失败！")
-        # 检查目标镜像是否已存在
-        image_name = f"{image_id}:latest"
+        # 检查目标镜像是否已存在（tag 混入 requirements.txt 的 md5 前 8 位，
+        # 依赖变更后 tag 自动变化，从而自动触发重建，无需手动 docker rmi）
+        image_name = resolve_sandbox_image(sandbox_cfg)
         try:
             res = subprocess.run(["docker", "images", "-q", image_name], capture_output=True, text=True, check=True)
             if res.stdout.strip():
-                logger.info(f"⚡ [沙箱基建] 检测到本地已存在镜像 {image_name}，跳过构建流程！")
-                logger.info(f"提示：若您更新了 requirements.txt，请手动在终端执行 `docker rmi {image_name}` 以触发重建。")
+                logger.info(f"⚡ [沙箱基建] 检测到本地已存在镜像 {image_name}（依赖指纹一致），跳过构建流程！")
                 return
         except subprocess.CalledProcessError:
             pass
@@ -131,7 +132,7 @@ class AutoTuneAgent:
             # 执行构建 (会覆盖已存在的同名镜像)
             try:
                 subprocess.run(
-                    ["docker", "build", "-t", f"{image_id}:latest", "-f-", "."],
+                    ["docker", "build", "-t", image_name, "-f-", "."],
                     input=dockerfile_content,
                     text=True,
                     check=True,

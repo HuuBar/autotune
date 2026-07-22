@@ -24,6 +24,8 @@ def sandbox(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         if cmd[:2] == ["docker", "ps"]:
             return _FakeCompleted(returncode=0, stdout="container123\n")  # 容器存活
+        if cmd[:2] == ["docker", "inspect"]:
+            return _FakeCompleted(returncode=0, stdout="autotune-env:latest\n")  # 镜像指纹一致
         if cmd[:2] == ["docker", "exec"]:
             return _FakeCompleted(
                 returncode=state["exec_returncode"],

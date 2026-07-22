@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 
 from utils.config import global_config
+from utils.docker_image import resolve_sandbox_image
 
 
 # execute_sandbox tool
@@ -65,7 +66,8 @@ class SandboxTools:
         # 1. 动态读取 Config 参数
         sandbox_cfg = global_config.get("sandbox", {}).get("docker", {})
         image_id = sandbox_cfg.get("name", "autotune-env")
-        target_image = f"{image_id}:latest"
+        # tag 混入 requirements.txt 的 md5 前 8 位，与 warmup 构建的镜像保持一致
+        target_image = resolve_sandbox_image(sandbox_cfg)
         container_name = f"{image_id}-runner"
 
         workdir = sandbox_cfg.get("workdir", "/workspace")
@@ -75,11 +77,21 @@ class SandboxTools:
         timeout = sandbox_cfg.get("timeout", 300)
         host_root_dir = os.path.abspath(global_config.get("workspace", {}).get("root_dir", ""))
 
-        # 2. 检查常驻后台容器是否存活
+        # 2. 检查常驻后台容器是否存活（且镜像指纹与当前依赖一致，否则重建容器）
         check_cmd = ["docker", "ps", "-q", "-f", f"name=^{container_name}$"]
         try:
             res = subprocess.run(check_cmd, capture_output=True, text=True, check=True)
-            if not res.stdout.strip():
+            container_alive = bool(res.stdout.strip())
+            if container_alive:
+                inspect = subprocess.run(
+                    ["docker", "inspect", "-f", "{{.Config.Image}}", container_name],
+                    capture_output=True, text=True, check=False,
+                )
+                if inspect.stdout.strip() != target_image:
+                    # 依赖已变更（tag 不同），旧容器环境过期，强制重建
+                    subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
+                    container_alive = False
+            if not container_alive:
                 subprocess.run(["docker", "rm", "-f", container_name], capture_output=True)
                 run_cmd = [
                     "docker", "run", "-d",
