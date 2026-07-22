@@ -1,0 +1,98 @@
+# S3 脆弱 JSON：配置编辑当场破坏格式（03 文档第四部分剧本库；时间线锚点 T+8：改完当场 JSON 校验）
+id: S3
+title: "脆弱 JSON：配置编辑未当场校验"
+trigger: "agent 编辑训练配置（JSON）实现阈值搜索，编辑引入尾逗号"
+env_response: "未当场校验就跑训练 → JSONDecodeError（第 12 行尾逗号）；当场解析校验（config_validate）可立即定位"
+expected_response: "改配置后当场解析校验（编辑的 verify），失败即修，不把破损配置带进训练"
+
+brief:
+  statement: "王者荣耀 F1 >= 0.75，Overall F1 >= 0.935，Recall >= 0.97，视频类 F1 降幅 <= 0.01"
+  acceptance:
+    - "per_app.王者荣耀.F1 >= 0.75"
+    - "overall.F1 >= 0.935"
+    - "overall.Recall >= 0.97"
+    - "per_app.bilibili.F1_delta >= -0.01"
+    - "per_app.抖音.F1_delta >= -0.01"
+
+facts:
+  per_app:
+    王者荣耀: {F1: 0.66}
+    bilibili: {F1_delta: -0.004}
+    抖音: {F1_delta: -0.003}
+  overall: {F1: 0.930, Recall: 0.962}
+
+graph: "../tbox_golden.yaml"
+playbook_extends: "../tbox_playbook.yaml"
+playbook:
+  meta: {id: "bench_s3_fragile_json", description: "S3：A5 首次配置编辑 JSON 非法（verify 拦截），重试修复"}
+  actions:
+    A1:  # 接线审计：干净
+      artifacts:
+        - produces: wiring_report
+          unwired_count: 0
+          unwired: []
+          wired: ["scale_pos_weight", "decision_threshold", "early_stopping"]
+    A3:  # 误差结构：FP 主导，验证样本 620
+      artifacts:
+        - produces: error_profile
+          dominant_error: "FP"
+          fp: 802
+          fn: 121
+          val_samples: {游戏: 620}
+    A4:  # 数据体检：干净
+      artifacts:
+        - produces: data_health
+          duplicate_columns: []
+          known_issues: []
+          missing_rate_max: 0.0
+    A5:  # 首次编辑 JSON 非法（verify "配置解析通过" 拦截）→ retry 修复
+      fail_sequence: [true, false]
+    A8:  # 加权路线实测 +0.08（confirmed）
+      artifacts:
+        - produces: run_result_h3
+          measured_gain: 0.08
+          facts_update:
+            per_app: {王者荣耀: {F1: 0.80}}
+
+expected_decisions: {J1: 1, J2: 0}
+expected_first_choice: {choice: tune_threshold, protocol_upgrade: false}
+marginal_threshold: 0.05
+inapplicable_cards: []
+
+baseline_env:
+  probes:
+    error_profile: {direction: "类别不平衡", reveals: "FP 802 / FN 121，游戏类验证样本 620 条"}
+    data_health: {direction: "数据质量", reveals: "无重复列，缺失率 0"}
+    config_validate: {direction: "工程稳健性", reveals: "配置第 12 行尾逗号 → JSONDecodeError，去除后解析通过"}
+    wiring_audit: {direction: "接线完整性", reveals: "全部机制已接线"}
+    sandbox_check: {direction: "环境就绪", reveals: "依赖齐全"}
+  interventions:
+    tune_threshold:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      preconditions:
+        - {probe: config_validate, failure: "JSONDecodeError: 配置第 12 行尾逗号", repair: re_edit}
+      gains: [0.12]
+      facts_update:
+        per_app: {王者荣耀: {F1: 0.78}}
+        overall: {F1: 0.937, Recall: 0.971}
+      fits_scenario: true
+      fit_reason: "FP 主导，阈值卡适用"
+    sample_weights:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      gains: [0.08]
+      fits_scenario: true
+      fit_reason: "FP 主导，加权卡适用"
+    prune_features:
+      direction: "特征空间"
+      needs_probes: [data_health]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本无特征问题，套用特征卡属盲抄"
+    fix_wiring:
+      direction: "接线完整性"
+      needs_probes: [wiring_audit]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本接线完好，套用修复卡属盲抄"

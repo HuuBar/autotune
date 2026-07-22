@@ -1,0 +1,208 @@
+# S6 沙箱依赖缺失（03 文档第四部分剧本库）
+# 有编排侧用内联专用图：环境侦察 → 决策点 → 补依赖 → 训练（SPEC §8 允许每剧本自带图）
+id: S6
+title: "沙箱依赖缺失：训练直接 ImportError"
+trigger: "沙箱环境缺少训练依赖 lightgbm，agent 直接发起全量训练"
+env_response: "未侦察环境就跑训练 → ModuleNotFoundError: lightgbm；环境侦察（sandbox_check）返回缺失清单，补齐后训练通过"
+expected_response: "训练前先侦察沙箱依赖；发现缺失 → 先补齐环境（决策点提优先级）→ 再训练"
+
+brief:
+  statement: "沙箱依赖就绪且全量训练达标：Overall F1 >= 0.93"
+  acceptance:
+    - "overall.F1 >= 0.93"
+
+facts:
+  overall: {F1: 0.900}
+
+graph:
+  version: "1.0"
+  meta:
+    task: "S6 沙箱依赖缺失"
+    created_by: "kp-bench (M6)"
+    source_cards: ["C2", "E1"]
+  goal:
+    statement: "沙箱依赖就绪且全量训练达标：Overall F1 >= 0.93"
+    acceptance:
+      - "overall.F1 >= 0.93"
+  nodes:
+    - id: D1
+      layer: domain
+      title: "环境就绪"
+      rationale: "沙箱依赖缺失是高频阻断点；训练前先确认环境（卡片 E1）"
+    - id: D2
+      layer: domain
+      title: "类别不平衡处理"
+      rationale: "任务书基线：游戏类 FP 主导"
+    - id: D3
+      layer: domain
+      title: "特征空间"
+      rationale: "基线 feature_importance 存在零重要度特征"
+    - id: H1
+      layer: hypothesis
+      domain: D1
+      title: "沙箱缺少训练依赖，补齐后训练可跑通"
+      mechanism: "ImportError 类失败由环境缺失引起，安装依赖即可解除阻断"
+      prior: 0.6
+      expected: {metric: "overall.F1", delta: "+0.0~0.05", confidence: "medium"}
+      cost: {recon_steps: 1, run_minutes: 3}
+    - id: H2
+      layer: hypothesis
+      domain: D2
+      title: "FP 主导时，上调决策阈值可提升 F1"
+      mechanism: "precision 偏低说明大量负类被判正；提高阈值直接减少 FP"
+      prior: 0.7
+      expected: {metric: "overall.F1", delta: "+0.02~0.10", confidence: "medium"}
+      cost: {recon_steps: 1, run_minutes: 5}
+    - id: A1
+      layer: action
+      belongs_to: H1
+      type: recon
+      do: "检查沙箱 python 环境与训练入口的 import 依赖，输出缺失清单"
+      tool_hint: "execute_safe_bash"
+      produces: "env_check"
+      verify: "依赖清单含每个必需包的 已安装/缺失 判定"
+      retry_budget: 1
+    - id: A2
+      layer: action
+      belongs_to: H1
+      type: edit
+      do: "补齐缺失依赖（安装或写约束文件），幂等：无缺失时空跑确认"
+      tool_hint: "execute_sandbox(pip install)"
+      produces: "env_fix"
+      verify: "缺失依赖安装成功且 import 冒烟通过"
+      retry_budget: 2
+    - id: A3
+      layer: action
+      belongs_to: D2
+      type: recon
+      do: "读基线 result_stats，统计误差结构"
+      tool_hint: "inspect_dataframe"
+      produces: "error_profile"
+      verify: "输出 FP、FN 两项数字"
+      retry_budget: 1
+    - id: A4
+      layer: action
+      belongs_to: H2
+      type: edit
+      do: "实现阈值搜索（范围由 error_profile 决定），改完当场解析校验"
+      tool_hint: "edit_code_block"
+      produces: "threshold_change"
+      verify: "配置解析通过；冒烟跑通"
+      retry_budget: 2
+    - id: A5
+      layer: action
+      belongs_to: H2
+      type: run
+      do: "全量训练并输出 result_stats"
+      tool_hint: "execute_sandbox"
+      produces: "run_result"
+      verify: "result_stats 达标"
+      retry_budget: 1
+  edges:
+    - {from: A1, to: A2, type: requires}   # 补依赖需要侦察结论
+    - {from: A3, to: A4, type: requires}   # 阈值范围由误差结构决定
+    - {from: A2, to: A5, type: requires}   # 训练前先确保环境就绪
+    - {from: A4, to: A5, type: requires}
+  decisions:
+    - id: J1
+      after: A1
+      read: env_check
+      branches:
+        - if: "存在缺失依赖"
+          then: "A2 提为最高优先：先补齐环境再训练"
+        - else: "A2 空跑确认环境就绪"
+  writeback:
+    ledger: "hypotheses.jsonl"
+    record_schema: "{node_id, status, evidence, metrics, posterior, notes, ts}"
+    after_domain_review: "按领域聚合收益，更新下一轮 prior"
+
+playbook:
+  meta: {id: "bench_s6_sandbox_missing_dep", description: "S6：沙箱缺 lightgbm；A1 侦察发现 → J1 提升 A2 优先级 → 补齐后训练达标"}
+  actions:
+    A1:
+      artifacts:
+        - produces: env_check
+          missing_count: 1
+          missing: ["lightgbm"]
+          installed: ["numpy", "pandas", "scikit-learn"]
+    A2:
+      artifacts:
+        - produces: env_fix
+          installed_now: ["lightgbm"]
+          import_smoke: "passed"
+    A3:
+      artifacts:
+        - produces: error_profile
+          dominant_error: "FP"
+          fp: 802
+          fn: 121
+    A4:
+      artifacts:
+        - produces: threshold_change
+          config_json_valid: true
+          smoke: "passed"
+    A5:
+      artifacts:
+        - produces: run_result
+          measured_gain: 0.05
+          facts_update:
+            overall: {F1: 0.935}
+  decisions:
+    J1:
+      rules:
+        - when:
+            - {path: missing_count, op: ">=", value: 1}
+          branch: 0
+          reason: "env_check 发现 {missing_count} 个缺失依赖（lightgbm）→ 命中「存在缺失依赖」，A2 提为最高优先先补环境"
+      default:
+        branch: 1
+        reason: "依赖齐全 → else：A2 空跑确认环境就绪"
+      effects:
+        "0": {boost: [A2]}
+        "1": {boost: []}
+  outcome_rules:
+    marginal_gain_threshold: 0.05
+    marginal_reruns: 1
+
+expected_decisions: {J1: 0}
+expected_first_choice: {choice: tune_threshold, protocol_upgrade: false}
+marginal_threshold: 0.05
+inapplicable_cards: []
+
+baseline_env:
+  probes:
+    error_profile: {direction: "类别不平衡", reveals: "FP 802 / FN 121"}
+    sandbox_check: {direction: "环境就绪", reveals: "缺少 lightgbm（numpy/pandas/scikit-learn 已安装）"}
+    wiring_audit: {direction: "接线完整性", reveals: "全部机制已接线"}
+    data_health: {direction: "数据质量", reveals: "无重复列，缺失率 0"}
+  interventions:
+    tune_threshold:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      preconditions:
+        - {probe: sandbox_check, failure: "ModuleNotFoundError: No module named 'lightgbm'"}
+      gains: [0.05]
+      facts_update:
+        overall: {F1: 0.935}
+      fits_scenario: true
+      fit_reason: "FP 主导，阈值卡适用"
+    sample_weights:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      preconditions:
+        - {probe: sandbox_check, failure: "ModuleNotFoundError: No module named 'lightgbm'"}
+      gains: [0.02]
+      fits_scenario: true
+      fit_reason: "FP 主导，加权卡适用"
+    prune_features:
+      direction: "特征空间"
+      needs_probes: [data_health]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本阻断点在环境，套用特征卡属盲抄"
+    fix_wiring:
+      direction: "接线完整性"
+      needs_probes: [wiring_audit]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本接线完好，套用修复卡属盲抄"

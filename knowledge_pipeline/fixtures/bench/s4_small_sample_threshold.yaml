@@ -1,0 +1,78 @@
+# S4 小样本阈值陷阱：验证集满分（03 文档第四部分剧本库；时间线锚点 T+6~T+7：
+# 游戏类验证样本 320 条 < 500，J2 走"阈值路线但验收升级 K 折"分支）
+id: S4
+title: "小样本阈值陷阱：验证集满分被当作真实收益"
+trigger: "游戏类验证集仅 320 条；阈值搜索在小验证集上搜出满分"
+env_response: "阈值路线在小验证集上 val_score=1.0（满分）；误差结构侦察返回：FP 主导、游戏类验证样本 320 条"
+expected_response: "满分被追问：样本 < 500 时阈值搜索有过拟合风险 → 验收协议升级为 K 折/标注低置信度（H6 激活）"
+
+brief:
+  statement: "王者荣耀 F1 >= 0.75，Overall F1 >= 0.935，Recall >= 0.97，视频类 F1 降幅 <= 0.01"
+  acceptance:
+    - "per_app.王者荣耀.F1 >= 0.75"
+    - "overall.F1 >= 0.935"
+    - "overall.Recall >= 0.97"
+    - "per_app.bilibili.F1_delta >= -0.01"
+    - "per_app.抖音.F1_delta >= -0.01"
+
+facts:
+  per_app:
+    王者荣耀: {F1: 0.66}
+    bilibili: {F1_delta: -0.004}
+    抖音: {F1_delta: -0.003}
+  overall: {F1: 0.930, Recall: 0.962}
+
+graph: "../tbox_golden.yaml"
+playbook_extends: "../tbox_playbook.yaml"
+playbook:
+  meta: {id: "bench_s4_small_sample_threshold", description: "S4：验证集游戏类 320 条，J2 走小样本分支（验收升级 K 折）"}
+
+expected_decisions: {J1: 0, J2: 1}
+expected_first_choice: {choice: tune_threshold, protocol_upgrade: true}
+marginal_threshold: 0.05
+inapplicable_cards: []
+
+# 指标 5 判据：阈值满分被追问、验收协议升级
+trap:
+  orchestrated_signals:
+    - {event: decision, node_id: J2, detail: {branch_index: 1}}  # 小样本分支：A6 验收升级 K 折
+  baseline_signals:
+    - {event: challenge}  # 追问满分/升级协议（自由基线无此机制 → 预期 0.0）
+
+baseline_env:
+  probes:
+    error_profile: {direction: "类别不平衡", reveals: "FP 802 / FN 121，游戏类验证样本仅 320 条"}
+    data_health: {direction: "数据质量", reveals: "重复列 feat_17"}
+    wiring_audit: {direction: "接线完整性", reveals: "scale_pos_weight 未传入 fit（train.py:142）"}
+    sandbox_check: {direction: "环境就绪", reveals: "依赖齐全"}
+  interventions:
+    tune_threshold:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      gains: [0.12]
+      val_score: 1.0   # 小验证集满分（陷阱本体）
+      facts_update:
+        per_app: {王者荣耀: {F1: 0.78}}
+        overall: {F1: 0.937, Recall: 0.971}
+      fits_scenario: true
+      fit_reason: "FP 主导，阈值卡适用"
+    sample_weights:
+      direction: "类别不平衡"
+      needs_probes: [error_profile]
+      gains: [0.03]
+      fits_scenario: true
+      fit_reason: "FP 主导，加权卡适用"
+    prune_features:
+      direction: "特征空间"
+      needs_probes: [data_health]
+      gains: [0.0]
+      fits_scenario: false
+      fit_reason: "本剧本核心风险在评估协议而非特征，套用特征卡属盲抄"
+    fix_wiring:
+      direction: "接线完整性"
+      needs_probes: [wiring_audit]
+      preconditions:
+        - {probe: wiring_audit, failure: "未定位接线点，改动冒烟失败（机制仍未生效）", repair: re_edit}
+      gains: [0.09]
+      fits_scenario: true
+      fit_reason: "存在未接线机制，修复卡适用"
