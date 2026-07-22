@@ -27,6 +27,7 @@ import argparse
 import copy
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from ..ledger import Ledger
@@ -172,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
             f"  {name}: orchestrated={check['orchestrated']} "
             f"baseline={check['baseline']} holds={check['holds']}"
         )
+    # 回归 harness 纪律：预登记硬目标失守时非 0 退出（终审 Minor-4）。
+    failed = [name for name, check in checks.items() if not check["holds"]]
+    if failed:
+        print(f"预登记检查未通过: {failed}", file=sys.stderr)
+        return 1
     return 0
 
 

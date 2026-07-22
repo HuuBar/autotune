@@ -64,6 +64,24 @@ def e2e_run(tmp_path_factory):
     return proc, out
 
 
+class TestRerunIdempotency:
+    """终审 Major-1 回归：同一 --out 目录重跑不得污染账本与聚合报告。"""
+
+    def test_rerun_same_out_dir_does_not_duplicate_ledger(self, tmp_path):
+        out = tmp_path / "rerun"
+        first = _run_cli("--out", str(out))
+        assert first.returncode == 0, first.stderr
+        baseline = (out / "hypotheses.jsonl").read_text(encoding="utf-8")
+        second = _run_cli("--out", str(out))
+        assert second.returncode == 0, second.stderr
+        rerun = (out / "hypotheses.jsonl").read_text(encoding="utf-8")
+        assert len([l for l in rerun.splitlines() if l.strip()]) == len(
+            [l for l in baseline.splitlines() if l.strip()]
+        ), "重跑后账本条目数必须不变（重跑清旧账纪律）"
+        report = json.loads((out / "domain_report.json").read_text(encoding="utf-8"))
+        assert report["D2"]["confirmed"] == 1, "重跑后领域聚合不得翻倍"
+
+
 # --------------------------------------------------------------------------
 # a) 默认离线链：退出码 0 + 六件套齐全可解析
 # --------------------------------------------------------------------------

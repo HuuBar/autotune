@@ -106,7 +106,7 @@ class MockExecutor:
 - **E5 每动作必验**：执行后按 playbook 判定 verify；失败 → 消耗 retry_budget 重试；耗尽 → blocked + `escalate` 事件：冻结其下游（下游置 blocked_pending，不参与解锁）、继续其他 domain、终报单列「未决阻塞」。
 - **E6 informs 回写**：informs 源 confirmed 后、目标解锁前，将源产物注入目标 params，轨迹记 `param_update`。
 - **E7 早停**：连续 k（默认 3，可配）个假说验证**无验收进展**（acceptance 评估无新通过项）→ `early_stop` 并报告。
-- **E8 写回前置**：节点 confirmed/refuted 后先完成账本写回（调用 M3 Ledger.append），写回成功才允许下游解锁；写回失败视为该节点 blocked。
+- **E8 写回前置**：节点 confirmed/refuted 后先完成账本写回（调用 M3 Ledger.append），写回成功才允许下游解锁；写回失败视为该节点 blocked。**粒度裁决【终审 Major-2 回写】**：写回以"假说终局裁决"为粒度（03 第三部分账本按假说记账），E8 的有序性仅在假说边界严格成立——同假说内中间动作链（如 A1→A2）为"先执行后写回"，跨假说下游 requires 某假说非末位动作时同理。此偏离由账本词表只支持假说级记录所迫，属有记录的工程裁决；若上游要求严格节点级 E8，需先扩展账本词表支持动作级记录。
 - 假说级状态聚合：hypothesis 由其下属全部 action 终态推出（全部 confirmed→confirmed；任一 blocked→blocked；按 playbook 实测收益判定 confirmed/refuted/uncertain——见 §5 状态词表）。
 - 运行结束（图耗尽或早停）输出 `Trace`（JSONL 事件流）+ 终报 dict（验收断言核对结果、blocked 清单、早停原因）。
 接口：`Simulator(graph: dict, executor: MockExecutor, ledger: Ledger, config: SimConfig).run() -> SimResult`；`SimResult = {trace_path, final_report, hypothesis_outcomes}`。

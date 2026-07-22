@@ -13,7 +13,6 @@ from .baseline_agent import (
     run_baseline,
 )
 from .metrics import METRIC_NAMES, aggregate, canonical_events, compute_metrics
-from .runner import run_bench, run_scenario
 from .scripts import (
     SCENARIO_IDS,
     Scenario,
@@ -22,6 +21,16 @@ from .scripts import (
     load_scenario,
     load_scripts,
 )
+
+def __getattr__(name):
+    # runner 惰性导入：避免 `python -m knowledge_pipeline.bench.runner` 时
+    # runpy 双导入告警（终审 Minor-3）。
+    if name in ("run_bench", "run_scenario"):
+        from . import runner
+
+        return getattr(runner, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "SCENARIO_IDS",

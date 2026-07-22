@@ -229,12 +229,17 @@ def _stage_simulate(args: argparse.Namespace, graph: dict, out: Path):
         playbook = load_playbook(playbook_path)
     except Exception as exc:
         raise StageError("模拟执行", f"playbook 加载失败: {exc}") from exc
-    ledger = Ledger(out / "hypotheses.jsonl")
+    ledger_path = out / "hypotheses.jsonl"
+    trace_path = out / "trace.jsonl"
+    for p in (ledger_path, trace_path):
+        if p.exists():
+            p.unlink()  # 重跑清旧账（append-only 账本的可重复性纪律，同 bench runner）
+    ledger = Ledger(ledger_path)
     sim = Simulator(
         graph,
         MockExecutor(playbook),
         ledger,
-        SimConfig(k=args.k, trace_path=out / "trace.jsonl"),
+        SimConfig(k=args.k, trace_path=trace_path),
     )
     try:
         result = sim.run()

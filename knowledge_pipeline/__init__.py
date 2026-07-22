@@ -1,7 +1,8 @@
 """knowledge_pipeline：知识工程流水线前端（执行前编排 → 执行 → 执行后回写）。
 
-M1 模块：编排图 schema + 确定性校验器 + 验收断言解析器。
-接口契约见 docs/knowledge-pipeline/SPEC.md §0~§3。
+模块：M1 schema/校验器/断言解析（本包顶层）· M2 simulator/（dry-run 调度）·
+M3 ledger.py（假说账本）· M4 compiler/（编排编译器）· M5 e2e/（一键流水线）·
+M6 bench/（量化评测台）。接口契约见 docs/knowledge-pipeline/SPEC.md。
 """
 
 from .assertions import Assertion, AssertionParseError, evaluate, parse_assertion

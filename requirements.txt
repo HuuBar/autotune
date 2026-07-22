@@ -7,3 +7,5 @@ langchain-community==0.4.1
 langgraph-checkpoint-postgres==3.0.5
 deepagents==0.5.2
 tabulate==0.10.0
+# knowledge_pipeline（知识工程流水线前端）唯一第三方依赖
+PyYAML>=6.0
