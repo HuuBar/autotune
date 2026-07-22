@@ -6,4 +6,4 @@ langchain-core==1.2.28
 langchain-community==0.4.1
 langgraph-checkpoint-postgres==3.0.5
 deepagents==0.5.2
-tabulate==0.10.0
+tabulate==0.10.0PyYAML==6.0.2
