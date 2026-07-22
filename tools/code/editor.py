@@ -1,6 +1,8 @@
 import os
 import ast
+import json
 
+import yaml
 from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 
@@ -16,7 +18,8 @@ EDIT_CODE_BLOCK_DESC = """用新代码精确替换指定文件中从 start_line 
 2. 严禁随意做去缩进(dedent)操作，如果有多行代码，尽量带上准确的前导空格。
 
 【安全提示】：
-工具自带语法预检。如果你的修改导致了 SyntaxError 或 IndentationError，修改将被自动拦截撤销，并返回报错行号供你修正。"""
+工具自带格式预检（按文件后缀分发）：.py 走 AST 解析，.json 走 JSON 解析，.yaml/.yml 走 YAML 解析。
+如果你的修改导致了 SyntaxError / IndentationError / JSON / YAML 解析错误，修改将被自动拦截撤销，并返回报错位置供你修正。"""
 
 class EditCodeBlockSchema(BaseModel):
     """Input schema for `edit_code_block` tool"""
@@ -31,7 +34,7 @@ INSERT_CODE_DESC = """在指定文件的特定行之后插入新代码。
 如果目标文件不存在，你可以使用此工具来创建新文件。
 此时，必须严格设置 line_number=0。工具会自动为你创建目录结构并写入 new_code。
 
-【注意】：请严格控制传入 new_code 的缩进级别，使其与上下文完美匹配。工具内置 AST 预检，缩进错误或语法错误将被拒绝写入。"""
+【注意】：请严格控制传入 new_code 的缩进级别，使其与上下文完美匹配。工具内置格式预检（.py AST / .json / .yaml），缩进错误、语法错误或 JSON/YAML 解析错误将被拒绝写入。"""
 
 class InsertCodeSchema(BaseModel):
     """Input schema for `insert_code` tool"""
@@ -43,7 +46,7 @@ class InsertCodeSchema(BaseModel):
 DELETE_CODE_DESC = """精确删除指定文件中从 start_line 到 end_line (包含) 的代码块。
 
 【安全限制 1】：本工具被严禁用于删除整个文件。你必须保留文件的基本结构。
-【安全限制 2】：工具内置 AST 预检。如果你删除了父级控制流（如 if/def/try）却遗留了其内部的缩进代码，或者破坏了括号闭合，操作将被自动撤销。"""
+【安全限制 2】：工具内置格式预检（.py AST / .json / .yaml）。如果你删除了父级控制流（如 if/def/try）却遗留了其内部的缩进代码，或者破坏了括号闭合，或破坏了 JSON/YAML 结构，操作将被自动撤销。"""
 
 class DeleteCodeSchema(BaseModel):
     """Input schema for `delete_code` tool"""
@@ -93,6 +96,41 @@ class EditorTools:
             aligned_lines.append(llm_first_line)
         aligned_lines.extend(llm_code_lines[1:])
         return "\n".join(aligned_lines)
+
+    def _precheck_structured_content(self, abs_path: str, new_file_content: str) -> str | None:
+        """
+        按文件后缀分发的格式预检（.py 的 AST 预检在各实现中单独处理，此处覆盖 JSON/YAML）。
+        校验失败时返回给大模型的错误信息（修改不落盘）；通过或不适用时返回 None。
+        """
+        lower_path = abs_path.lower()
+        if lower_path.endswith('.json'):
+            try:
+                json.loads(new_file_content)
+            except json.JSONDecodeError as e:
+                return (
+                    f"❌ 修改被安全撤销：引发了 JSON 解析错误。\n"
+                    f"报错位置: 第 {e.lineno} 行 第 {e.colno} 列\n"
+                    f"报错信息: {e.msg}\n"
+                    f"系统提示：文件未被写入任何改动。请修正 JSON 语法（常见原因：多余逗号、引号未闭合、误用单引号）后重新提交完整修改。"
+                )
+            except Exception as e:
+                return f"❌ JSON 解析异常: {str(e)}"
+        elif lower_path.endswith(('.yaml', '.yml')):
+            try:
+                yaml.safe_load(new_file_content)
+            except yaml.YAMLError as e:
+                mark = getattr(e, 'problem_mark', None)
+                location = f"第 {mark.line + 1} 行 第 {mark.column + 1} 列" if mark else "位置未知"
+                problem = getattr(e, 'problem', None) or str(e)
+                return (
+                    f"❌ 修改被安全撤销：引发了 YAML 解析错误。\n"
+                    f"报错位置: {location}\n"
+                    f"报错信息: {problem}\n"
+                    f"系统提示：文件未被写入任何改动。请修正 YAML 语法（常见原因：缩进不一致、混用 Tab、冒号后缺空格、引号未闭合）后重新提交完整修改。"
+                )
+            except Exception as e:
+                return f"❌ YAML 解析异常: {str(e)}"
+        return None
 
     def _edit_code_block_impl(self, file_path: str, start_line: int, end_line: int, new_code: str) -> str:
         """
@@ -165,6 +203,11 @@ class EditorTools:
             except Exception as e:
                 return f"❌ AST 解析异常: {str(e)}"
 
+        # 5b. JSON/YAML 格式预检（按后缀分发）
+        precheck_error = self._precheck_structured_content(abs_path, new_file_content)
+        if precheck_error:
+            return precheck_error
+
         # 6. 落盘保存
         try:
             with open(abs_path, 'w', encoding='utf-8') as f:
@@ -211,6 +254,10 @@ class EditorTools:
                 except SyntaxError as e:
                     error_msg = format_syntax_error(e, "新建文件失败，你提交的代码存在 SyntaxError。")
                     return error_msg
+            # JSON/YAML 格式预检（按后缀分发）
+            precheck_error = self._precheck_structured_content(abs_path, cleaned_code)
+            if precheck_error:
+                return precheck_error
             # 创建多级父目录并写入文件
             try:
                 os.makedirs(os.path.dirname(abs_path), exist_ok=True)
@@ -241,6 +288,10 @@ class EditorTools:
             except SyntaxError as e:
                 error_msg = format_syntax_error(e, "插入操作已被安全撤销，合并后的代码出现 SyntaxError。")
                 return error_msg
+        # JSON/YAML 格式预检（按后缀分发）
+        precheck_error = self._precheck_structured_content(abs_path, new_file_content)
+        if precheck_error:
+            return precheck_error
         # 落盘保存
         try:
             with open(abs_path, 'w', encoding='utf-8') as f:
@@ -304,6 +355,11 @@ class EditorTools:
                 error_msg = format_syntax_error(e, context_msg="删除操作已被安全撤销，删除后的代码出现 SyntaxError。")
                 error_msg += "\n通常是因为你遗留了部分代码未删除，或破坏了原有的括号/结构。请重新评估需要删除的行号范围。"
                 return error_msg
+
+        # 5b. JSON/YAML 格式预检（按后缀分发）
+        precheck_error = self._precheck_structured_content(abs_path, new_file_content)
+        if precheck_error:
+            return precheck_error
 
         # 6. 落盘保存
         try:
