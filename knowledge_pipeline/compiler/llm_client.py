@@ -28,6 +28,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Protocol, Sequence, runtime_checkable
@@ -57,12 +59,23 @@ class LLMResponseError(RuntimeError):
     """端点返回异常（HTTP 错误、响应结构不符、缺 choices 等）。"""
 
 
+class _TransientHTTPError(RuntimeError):
+    """瞬态网络层错误（连接失败 / socket 超时 / HTTP 5xx），内部重试信号。"""
+
+
 class OpenAICompatClient:
-    """OpenAI 兼容聊天补全客户端（urllib 实现）。
+    """OpenAI 兼容聊天补全客户端（urllib 实现，网络层瞬态重试）。
 
     参数缺省依次回落：构造参数 → 环境变量 ``KP_LLM_BASE_URL`` /
     ``KP_LLM_MODEL`` / ``KP_LLM_API_KEY``。``base_url`` 与 ``model`` 必填，
     ``api_key`` 可空（本地自托管端点常见）。
+
+    重试口径：仅**网络层瞬态错误**（连接失败 / socket 超时 / HTTP 5xx）
+    触发重试，指数退避 1s → 4s（``backoff_base * backoff_factor**n``），
+    最多重试 ``max_retries`` 次（默认 2，共 3 次尝试），耗尽后抛
+    :class:`LLMResponseError`。HTTP 4xx 与响应结构类错误（同样是
+    :class:`LLMResponseError`）**不重试**，首次即抛。``sleep`` 可注入
+    便于测试（默认 ``time.sleep``，测试不得真 sleep）。
     """
 
     def __init__(
@@ -73,12 +86,22 @@ class OpenAICompatClient:
         *,
         timeout: float = 120.0,
         temperature: float = 0.0,
+        max_retries: int = 2,
+        backoff_base: float = 1.0,
+        backoff_factor: float = 4.0,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
         self.base_url = (base_url or os.environ.get(ENV_BASE_URL) or "").rstrip("/")
         self.model = model or os.environ.get(ENV_MODEL) or ""
         self.api_key = api_key if api_key is not None else os.environ.get(ENV_API_KEY)
         self.timeout = timeout
         self.temperature = temperature
+        if max_retries < 0:
+            raise ValueError("max_retries 必须 >= 0")
+        self.max_retries = max_retries
+        self.backoff_base = backoff_base
+        self.backoff_factor = backoff_factor
+        self.sleep = sleep if sleep is not None else time.sleep
         if not self.base_url:
             raise ValueError(
                 f"缺少 LLM base_url：请传构造参数或设置环境变量 {ENV_BASE_URL}"
@@ -111,13 +134,44 @@ class OpenAICompatClient:
         body = json.dumps(self._payload(system, user), ensure_ascii=False).encode("utf-8")
         return urllib.request.Request(self.endpoint, data=body, headers=headers, method="POST")
 
-    def complete(self, system: str, user: str) -> str:
-        req = self._build_request(system, user)
+    def _send_once(self, req: urllib.request.Request) -> str:
+        """单次 HTTP 尝试，返回响应原文。
+
+        错误分类：HTTP 5xx / 连接失败 / socket 超时 → :class:`_TransientHTTPError`
+        （交由重试层处理）；HTTP 4xx 等其余 HTTP 错误 → :class:`LLMResponseError`
+        （内容/请求类错误，不重试）。
+        """
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                raw = resp.read().decode("utf-8")
-        except OSError as exc:  # 含 HTTPError / URLError / timeout
-            raise LLMResponseError(f"LLM 端点请求失败: {exc}") from exc
+                return resp.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            if 500 <= exc.code < 600:
+                raise _TransientHTTPError(f"HTTP {exc.code} {exc.reason}") from exc
+            raise LLMResponseError(
+                f"LLM 端点返回 HTTP {exc.code}（非瞬态，不重试）: {exc.reason}"
+            ) from exc
+        except OSError as exc:  # URLError / ConnectionError / socket.timeout 等
+            raise _TransientHTTPError(f"连接失败或超时: {exc}") from exc
+
+    def _post_with_retry(self, req: urllib.request.Request) -> str:
+        """网络层重试循环：仅瞬态错误重试，指数退避，耗尽抛 LLMResponseError。"""
+        last: _TransientHTTPError | None = None
+        for attempt in range(1, self.max_retries + 2):  # 共 max_retries+1 次尝试
+            try:
+                return self._send_once(req)
+            except _TransientHTTPError as exc:
+                last = exc
+                if attempt > self.max_retries:
+                    break
+                delay = self.backoff_base * (self.backoff_factor ** (attempt - 1))
+                self.sleep(delay)
+        raise LLMResponseError(
+            f"LLM 端点请求失败（瞬态错误已重试 {self.max_retries} 次）: {last}"
+        ) from last
+
+    def complete(self, system: str, user: str) -> str:
+        req = self._build_request(system, user)
+        raw = self._post_with_retry(req)
         try:
             payload = json.loads(raw)
             return str(payload["choices"][0]["message"]["content"])
