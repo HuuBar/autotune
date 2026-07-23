@@ -20,6 +20,7 @@ from langgraph.store.memory import InMemoryStore
 # from langgraph.store.postgres import PostgresStore
 
 from llm.request_llm import RequestLLM
+from agent.kg_middleware import KnowledgeGraphMiddleware
 from agent.middleware import StrictSubAgentMiddleware
 from tools.code.editor import EditorTools
 from tools.code.executor import SandboxTools
@@ -341,6 +342,11 @@ class ManagerAgentBuilder(BaseAgentBuilder):
 
 
 class PlannerAgentBuilder(BaseAgentBuilder):
+    def __init__(self, *args, kg_context: Dict[str, Any] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        # 知识图谱运行上下文（设计书 §3-D1/D4）：None = 未开启，行为与现状一致
+        self._kg_context = kg_context
+
     def get_role(self) -> str:
         return "Planner"
 
@@ -365,6 +371,21 @@ class PlannerAgentBuilder(BaseAgentBuilder):
 
     def get_exclude_tools(self) -> List[str]:
         return ["write_todos", "write_file", "edit_file", "ls", "glob", "grep"]
+
+    def _get_middleware(self):
+        # 设计书 §3-D1：仅在 knowledge_graph.enabled 且图合法时（kg_context 非 None）
+        # 于列表尾部 append KnowledgeGraphMiddleware；否则返回列表与现状完全相同
+        middleware = super()._get_middleware()
+        if self._kg_context is not None:
+            middleware.append(
+                KnowledgeGraphMiddleware(
+                    graph=self._kg_context["graph"],
+                    store=self.store,
+                    graph_path=self._kg_context.get("graph_path", ""),
+                    uncertain_dampen=self._kg_context.get("uncertain_dampen", 0.5),
+                )
+            )
+        return middleware
 
     def get_skill_mappings(self) -> Dict[str, str]:
         skill_paths = global_config.get("skills", {}).get("planner_skill_path", [])

@@ -15,6 +15,8 @@ from agent.factory import (
     DeveloperAgentBuilder,
     DebuggerAgentBuilder,
 )
+from knowledge_pipeline.schema import load_graph
+from knowledge_pipeline.validator import validate_file
 from utils.config import global_config
 from utils.logger import logger
 
@@ -70,6 +72,76 @@ class AutoTuneAgent:
             logger.info(f"✅ 成功导出 plan_log.md: 已保存至 {save_path}")
         except Exception as e:
             logger.error(f"❌ 导出 plan_log 时发生异常: {str(e)}")
+
+    def _prepare_knowledge_graph(self):
+        """
+        启动阶段加载知识图谱（设计书 §3-D4 / §4.1）：
+        - knowledge_graph.enabled 缺省/false → 返回 None（主系统行为与现状一致）；
+        - enabled → 加载 graph_path 并过 M1 校验（validate_file）；
+        - 校验失败按 on_invalid：abort（默认）明确报错退出 / warn_disable 记 warning 等价未开启。
+        """
+        kg_cfg = global_config.get("knowledge_graph", {}) or {}
+        if not kg_cfg.get("enabled", False):
+            return None
+        graph_path = kg_cfg.get("graph_path", "kg/graph.yaml")
+        on_invalid = kg_cfg.get("on_invalid", "abort")
+        errors = validate_file(graph_path)
+        if errors:
+            summary = "\n".join(f"  - {e}" for e in errors[:10])
+            if on_invalid == "warn_disable":
+                logger.warning(
+                    f"⚠️ knowledge_graph 图 {graph_path} 未通过 M1 校验，"
+                    f"按 on_invalid=warn_disable 等价关闭：\n{summary}"
+                )
+                return None
+            raise RuntimeError(
+                f"❌ 致命错误：knowledge_graph 图 {graph_path} 未通过 M1 校验"
+                f"（on_invalid=abort，fail-fast）：\n{summary}"
+            )
+        graph = load_graph(graph_path)
+        logger.info(f"✅ 知识图谱已加载并通过 M1 校验：{graph_path}（Planner 将挂载 KnowledgeGraphMiddleware）")
+        return {
+            "graph": graph,
+            "graph_path": graph_path,
+            "uncertain_dampen": kg_cfg.get("uncertain_dampen", 0.5),
+        }
+
+    def _export_kg_log(self, save_dir: str):
+        """
+        从 Store 中导出 /memories/kg/（state.json + hypotheses.jsonl）到指定目录。
+        仿 _export_plan_log：try/except 容错，导出失败不掩盖主流程结果。
+        """
+        namespace = ("filesystem",)
+        try:
+            texts = {}
+            for key, filename in (("/kg/state.json", "state.json"), ("/kg/hypotheses.jsonl", "hypotheses.jsonl")):
+                item = self.store.get(namespace, key)
+                if not item:
+                    continue
+                raw_data = item.value
+                if isinstance(raw_data, dict):
+                    content_data = raw_data.get("content", raw_data)
+                else:
+                    content_data = raw_data
+                if isinstance(content_data, list):
+                    file_content = "\n".join(str(line) for line in content_data)
+                elif isinstance(content_data, str):
+                    file_content = content_data
+                else:
+                    file_content = str(content_data)
+                texts[filename] = file_content
+
+            if not texts:
+                logger.info("未找到 /memories/kg/ 状态（知识图谱未开启或无回写），跳过 kg 导出。")
+                return
+            os.makedirs(save_dir, exist_ok=True)
+            for filename in ("state.json", "hypotheses.jsonl"):
+                save_path = os.path.join(save_dir, filename)
+                with open(save_path, 'w', encoding='utf-8') as f:
+                    f.write(texts.get(filename, ""))
+                logger.info(f"✅ 成功导出知识图谱状态: 已保存至 {save_path}")
+        except Exception as e:
+            logger.error(f"❌ 导出 kg 状态时发生异常: {str(e)}")
 
     def warmup_docker_env(self):
         """
@@ -144,11 +216,15 @@ class AutoTuneAgent:
     def run(self):
         self._check_config()
         self.warmup_docker_env()
+        # 知识图谱启动接线（设计书 §3-D4）：_check_config 之后加载+校验图
+        kg_context = self._prepare_knowledge_graph()
 
         llm = "dsv4"
 
         manager_builder = ManagerAgentBuilder(llm_name=llm, store=self.store, checkpointer=self.checkpointer)
-        planner_builder = PlannerAgentBuilder(llm_name=llm, store=self.store, checkpointer=self.checkpointer)
+        planner_builder = PlannerAgentBuilder(
+            llm_name=llm, store=self.store, checkpointer=self.checkpointer, kg_context=kg_context
+        )
         developer_builder = DeveloperAgentBuilder(llm_name=llm, store=self.store, checkpointer=self.checkpointer)
         debugger_builder = DebuggerAgentBuilder(llm_name=llm, store=self.store, checkpointer=self.checkpointer)
 
@@ -187,3 +263,9 @@ class AutoTuneAgent:
             plan_log_save_dir = global_config.get("workspace", {}).get("plan_log_save_dir", "./log")
             logger.info("正在保存plan日志...")
             self._export_plan_log(plan_log_save_dir)
+            # 知识图谱导出（设计书 §3-D3）：export_dir 缺省 = plan_log_save_dir + "/kg"
+            # 仅在 knowledge_graph.enabled 时导出——关闭态零行为变化（日志无 kg 痕迹，验收 V2）
+            kg_cfg = global_config.get("knowledge_graph", {}) or {}
+            if kg_cfg.get("enabled", False):
+                kg_export_dir = kg_cfg.get("export_dir") or os.path.join(plan_log_save_dir, "kg")
+                self._export_kg_log(kg_export_dir)

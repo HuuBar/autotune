@@ -67,7 +67,7 @@ llm:
     temperature: 0.7
   deepseek-v4:
     url: "api.deepseek.com"
-    api_key: "
+    api_key: ""
     model_name: "deepseek-v4-flash"
     temperature: 0.7
 
@@ -77,3 +77,11 @@ tavily:
 
 # 个人proxy配置
 proxy: "http://username:password@proxy.huawei.com:8080"
+
+# 知识图谱配置（设计书 §4.1；缺省关闭：未配置/enabled:false 时主系统行为与现在逐字节一致）
+knowledge_graph:
+  enabled: false            # 缺省关闭
+  graph_path: "kg/graph.yaml"     # 相对 autotune 根目录
+  on_invalid: "abort"       # abort | warn_disable
+  uncertain_dampen: 0.5     # E9 中 uncertain 假说的降权系数（工程默认值）
+  export_dir: ""            # 缺省 = workspace.plan_log_save_dir + "/kg"
